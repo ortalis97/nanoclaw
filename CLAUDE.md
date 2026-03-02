@@ -4,7 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Workspace Is
 
-This is the **deployment configuration workspace** for NanoClaw — a 24/7 WhatsApp bot named Alfred running on an Oracle Cloud Always Free VM (1 OCPU, 1GB RAM, Ubuntu 22.04). The NanoClaw application source lives at `https://github.com/qwibitai/nanoclaw.git` and is deployed to `/opt/nanoclaw` on the VM. This workspace holds the deployment artifacts that get committed to the repo and used during setup.
+This is the **fork of NanoClaw** (`ortalis97/alfred`) — a 24/7 WhatsApp bot named Alfred. The source code lives here and the Oracle Cloud Always Free VM (1 OCPU, 1GB RAM, Ubuntu 22.04) runs the deployed version at `/opt/nanoclaw`.
+
+- **Fork:** `git@github.com:ortalis97/alfred.git`
+- **Upstream:** `https://github.com/qwibitai/nanoclaw.git`
+- **VM:** `ubuntu@VM_IP_REDACTED` (SSH key: `~/.ssh/your-ssh-key`)
+
+To get upstream NanoClaw updates: `git fetch upstream && git merge upstream/main`
 
 ## Deployment Files
 
@@ -80,3 +86,20 @@ sudo systemctl restart nanoclaw
 tail -f /opt/nanoclaw/logs/nanoclaw.log
 tail -f /opt/nanoclaw/logs/nanoclaw.error.log
 ```
+
+## Ongoing Development Workflow
+
+Edit code locally → commit → run `deploy/deploy-changes.sh`.
+
+```bash
+# Day-to-day change
+git add <files> && git commit -m "description"
+bash deploy/deploy-changes.sh
+
+# When container/Dockerfile changes (takes 10-15 min)
+bash deploy/deploy-changes.sh --rebuild-docker
+```
+
+The script: pushes to GitHub → pulls on VM → npm install + build → restarts systemd service.
+
+**SSH to VM:** `ssh -i ~/.ssh/your-ssh-key ubuntu@VM_IP_REDACTED`
