@@ -1,0 +1,18 @@
+# NanoClaw log rotation configuration
+#
+# Installation:
+#   sudo cp deploy/nanoclaw.logrotate /etc/logrotate.d/nanoclaw
+#   sudo logrotate -d /etc/logrotate.d/nanoclaw   # dry-run to verify
+#
+# Rotates daily, keeps 7 days, compresses old logs.
+# copytruncate is used so the running process keeps its file handle open.
+
+/opt/nanoclaw/logs/*.log {
+    daily
+    missingok
+    rotate 7
+    compress
+    delaycompress
+    notifempty
+    copytruncate
+}

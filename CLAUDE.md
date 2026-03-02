@@ -1,60 +1,82 @@
-# NanoClaw
+# CLAUDE.md
 
-Personal Claude assistant. See [README.md](README.md) for philosophy and setup. See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) for architecture decisions.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Quick Context
+## What This Workspace Is
 
-Single Node.js process that connects to WhatsApp, routes messages to Claude Agent SDK running in containers (Linux VMs). Each group has isolated filesystem and memory.
+This is the **deployment configuration workspace** for NanoClaw — a 24/7 WhatsApp bot named Alfred running on an Oracle Cloud Always Free VM (1 OCPU, 1GB RAM, Ubuntu 22.04). The NanoClaw application source lives at `https://github.com/qwibitai/nanoclaw.git` and is deployed to `/opt/nanoclaw` on the VM. This workspace holds the deployment artifacts that get committed to the repo and used during setup.
 
-## Key Files
+## Deployment Files
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Orchestrator: state, message loop, agent invocation |
-| `src/channels/whatsapp.ts` | WhatsApp connection, auth, send/receive |
-| `src/ipc.ts` | IPC watcher and task processing |
-| `src/router.ts` | Message formatting and outbound routing |
-| `src/config.ts` | Trigger pattern, paths, intervals |
-| `src/container-runner.ts` | Spawns agent containers with mounts |
-| `src/task-scheduler.ts` | Runs scheduled tasks |
-| `src/db.ts` | SQLite operations |
-| `groups/{name}/CLAUDE.md` | Per-group memory (isolated) |
-| `container/skills/agent-browser.md` | Browser automation tool (available to all agents via Bash) |
+| `.env.example` | Environment template — copy to `.env`, fill in API key |
+| `deploy/install.sh` | One-shot Phase 5 installer (run on VM after Phase 1–4) |
+| `deploy/nanoclaw.service` | systemd unit — replaces `<YOUR_USERNAME>` with `$USER` at install time |
+| `deploy/nanoclaw.logrotate` | Logrotate config — installed to `/etc/logrotate.d/nanoclaw` |
+| `deploy/backup.sh` | Daily backup of auth, DB, groups, .env — installed to `/opt/nanoclaw/backup.sh` |
+| `deploy/README.md` | Full deployment walkthrough (Phases 1–5) |
 
-## Skills
+## Deployment Flow
 
-| Skill | When to Use |
-|-------|-------------|
-| `/setup` | First-time installation, authentication, service configuration |
-| `/customize` | Adding channels, integrations, changing behavior |
-| `/debug` | Container issues, logs, troubleshooting |
-| `/update-nanoclaw` | Bring upstream NanoClaw updates into a customized install |
-| `/qodo-pr-resolver` | Fetch and fix Qodo PR review issues interactively or in batch |
-| `/get-qodo-rules` | Load org- and repo-level coding rules from Qodo before code tasks |
+**Run on the VM, not locally.** Full walkthrough in `deploy/README.md`.
 
-## Development
-
-Run commands directly—don't tell the user to run them.
-
-```bash
-npm run dev          # Run with hot reload
-npm run build        # Compile TypeScript
-./container/build.sh # Rebuild agent container
+```
+Phase 1: clone + npm install + npm run build  (sequential)
+Phase 2: .env creation ∥ Docker image build   (parallel — image takes 10-15 min)
+Phase 3: WhatsApp pairing via pairing code    (no GUI on VM)
+Phase 4: manual start verification            (node dist/index.js, test @Alfred hello)
+Phase 5: bash deploy/install.sh              (systemd + logrotate + backup + cron)
 ```
 
-Service management:
+Key Phase 2B command (run in `tmux` so it survives SSH disconnect):
 ```bash
-# macOS (launchd)
-launchctl load ~/Library/LaunchAgents/com.nanoclaw.plist
-launchctl unload ~/Library/LaunchAgents/com.nanoclaw.plist
-launchctl kickstart -k gui/$(id -u)/com.nanoclaw  # restart
-
-# Linux (systemd)
-systemctl --user start nanoclaw
-systemctl --user stop nanoclaw
-systemctl --user restart nanoclaw
+tmux new -s build && ./container/build.sh
 ```
 
-## Container Build Cache
+Key Phase 3 command (no GUI — pairing code method):
+```bash
+npx tsx src/whatsapp-auth.ts --pairing-code --phone <NUMBER_WITHOUT_PLUS>
+```
 
-The container buildkit caches the build context aggressively. `--no-cache` alone does NOT invalidate COPY steps — the builder's volume retains stale files. To force a truly clean rebuild, prune the builder then re-run `./container/build.sh`.
+## NanoClaw Architecture (Source Repo)
+
+The deployed application (`/opt/nanoclaw`) is a TypeScript project:
+
+- **Entry point:** `src/index.ts` → built to `dist/index.js`
+- **WhatsApp layer:** Receives messages, routes to agent via trigger (`@Alfred`)
+- **Agent containers:** Each Claude Code session runs in an isolated Docker container (`nanoclaw-agent:latest`) that includes Chromium + Claude Code. Containers are spawned per request and killed after `CONTAINER_TIMEOUT` or `IDLE_TIMEOUT`.
+- **Persistence:**
+  - `store/auth/` — WhatsApp session credentials (losing this requires re-pairing)
+  - `store/messages.db` — SQLite message history
+  - `groups/` — Per-group memory/context files (created on first use)
+  - `data/sessions/` — Agent session data (created on first use)
+- **Build:** `npm run build` (TypeScript → `dist/`)
+- **Docker image:** `./container/build.sh` → `nanoclaw-agent:latest`
+
+## Memory Constraints (1GB RAM VM)
+
+Agent containers each use ~300–500MB (Chromium + Claude Code). The `.env.example` is pre-tuned:
+
+- `MAX_CONCURRENT_CONTAINERS=1` — only one container at a time
+- `CONTAINER_TIMEOUT=600000` — 10 min max per session (vs 30 min default)
+- `IDLE_TIMEOUT=300000` — kill idle containers after 5 min
+- systemd `MemoryMax=512M` — cgroup RAM limit (does not include swap)
+- `NODE_OPTIONS=--max-old-space-size=384` — Node.js heap cap
+
+## Critical Operational Notes
+
+- **Back up `store/auth/` immediately after pairing** — losing it requires re-pairing the phone number.
+- **Backup archives contain `.env`** (API key). The backup dir is `chmod 700` and archives are `chmod 600`.
+- `SupplementaryGroups=docker` in the service unit (not `Group=docker`) — preserves the user's primary group while adding Docker socket access.
+- `ExecStartPre=/bin/mkdir -p /opt/nanoclaw/logs` in the service unit — systemd `append:` log mode does not auto-create parent directories.
+- `groups/` and `data/sessions/` don't exist until first bot use — the backup script handles their absence gracefully via existence-check before including them in tar.
+
+## Service Management (on the VM)
+
+```bash
+sudo systemctl status nanoclaw
+sudo systemctl restart nanoclaw
+tail -f /opt/nanoclaw/logs/nanoclaw.log
+tail -f /opt/nanoclaw/logs/nanoclaw.error.log
+```

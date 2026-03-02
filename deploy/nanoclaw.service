@@ -1,0 +1,41 @@
+# NanoClaw systemd service unit
+#
+# Installation:
+#   1. Replace <YOUR_USERNAME> with your actual Linux username (or run deploy/install.sh)
+#   2. sudo cp deploy/nanoclaw.service /etc/systemd/system/nanoclaw.service
+#   3. sudo systemctl daemon-reload
+#   4. sudo systemctl enable nanoclaw
+#   5. sudo systemctl start nanoclaw
+#
+# SupplementaryGroups=docker gives Docker socket access without replacing the
+# user's primary group. Group= is intentionally omitted so the primary group
+# remains the user's default group (e.g. ubuntu), preserving file access.
+#
+# MemoryMax limits RAM usage only (not swap). On a 1GB RAM + 2GB swap VM,
+# the process can still use swap beyond 512MB RAM. MemoryHigh=400M triggers
+# memory reclaim before hitting the hard limit.
+
+[Unit]
+Description=NanoClaw WhatsApp Bot (Alfred)
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=<YOUR_USERNAME>
+SupplementaryGroups=docker
+WorkingDirectory=/opt/nanoclaw
+ExecStartPre=/bin/mkdir -p /opt/nanoclaw/logs
+ExecStart=/usr/bin/node /opt/nanoclaw/dist/index.js
+Restart=always
+RestartSec=10
+Environment=HOME=/home/<YOUR_USERNAME>
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=NODE_OPTIONS=--max-old-space-size=384
+StandardOutput=append:/opt/nanoclaw/logs/nanoclaw.log
+StandardError=append:/opt/nanoclaw/logs/nanoclaw.error.log
+MemoryMax=512M
+MemoryHigh=400M
+
+[Install]
+WantedBy=multi-user.target
