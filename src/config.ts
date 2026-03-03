@@ -11,16 +11,8 @@ const envConfig = readEnvFile([
   'ASSISTANT_HAS_OWN_NUMBER',
   'ALLOWED_SENDERS',
   'ASSISTANT_HEBREW_NAME',
-  'TZ',
   'AGENT_MODEL',
 ]);
-
-// Apply TZ from .env early so all date/timezone operations use the right timezone.
-// Must happen before TIMEZONE is computed via Intl.DateTimeFormat() below.
-// process.env.TZ is respected by Node.js on Linux (calls tzset() internally).
-if (envConfig.TZ && !process.env.TZ) {
-  process.env.TZ = envConfig.TZ;
-}
 
 export const ASSISTANT_NAME =
   process.env.ASSISTANT_NAME || envConfig.ASSISTANT_NAME || 'Andy';
