@@ -199,8 +199,9 @@ export class WhatsAppChannel implements Channel {
             if (!(await this.hasAllowedMember(chatJid))) continue;
           } else {
             const fromMe = msg.key.fromMe || false;
-            const sender = msg.key.participant || msg.key.remoteJid || '';
-            if (!fromMe && !ALLOWED_SENDERS.has(sender)) continue;
+            // Use translated chatJid (not raw remoteJid) — remoteJid may be a LID
+            // in newer WhatsApp versions, which wouldn't match the phone-JID allowlist.
+            if (!fromMe && !ALLOWED_SENDERS.has(chatJid)) continue;
           }
         }
 
@@ -217,7 +218,10 @@ export class WhatsAppChannel implements Channel {
         let groups = this.opts.registeredGroups();
         if (!groups[chatJid] && this.opts.onAutoRegister) {
           const senderForName = msg.key.participant || msg.key.remoteJid || '';
-          const chatName = msg.pushName || senderForName.split('@')[0] || chatJid.split('@')[0];
+          const chatName =
+            msg.pushName ||
+            senderForName.split('@')[0] ||
+            chatJid.split('@')[0];
           this.opts.onAutoRegister(chatJid, isGroup, chatName);
           groups = this.opts.registeredGroups();
         }
@@ -342,7 +346,7 @@ export class WhatsAppChannel implements Channel {
         if (metadata.participants) {
           this.groupParticipants.set(
             jid,
-            new Set(metadata.participants.map(p => p.id)),
+            new Set(metadata.participants.map((p) => p.id)),
           );
         }
       }
@@ -361,10 +365,13 @@ export class WhatsAppChannel implements Channel {
     if (!members) {
       try {
         const meta = await this.sock.groupMetadata(groupJid);
-        members = new Set(meta.participants.map(p => p.id));
+        members = new Set(meta.participants.map((p) => p.id));
         this.groupParticipants.set(groupJid, members);
       } catch (err) {
-        logger.warn({ groupJid, err }, 'Failed to fetch group metadata for allowlist check');
+        logger.warn(
+          { groupJid, err },
+          'Failed to fetch group metadata for allowlist check',
+        );
         return false;
       }
     }
