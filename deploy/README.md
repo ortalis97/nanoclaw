@@ -25,7 +25,7 @@ sudo chown $USER:$USER /opt/nanoclaw
 
 # Clone repo
 cd /opt/nanoclaw
-git clone https://github.com/qwibitai/nanoclaw.git .
+git clone https://github.com/ortalis97/nanoclaw.git .
 
 # Install dependencies (memory-safe)
 NODE_OPTIONS="--max-old-space-size=512" npm install
