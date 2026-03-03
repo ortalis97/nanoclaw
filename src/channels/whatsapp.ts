@@ -369,8 +369,9 @@ export class WhatsAppChannel implements Channel {
       }
     }
 
-    for (const allowed of ALLOWED_SENDERS) {
-      if (members.has(allowed)) return true;
+    for (const memberId of members) {
+      const resolved = await this.translateJid(memberId);
+      if (ALLOWED_SENDERS.has(resolved)) return true;
     }
     return false;
   }
