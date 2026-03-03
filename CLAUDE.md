@@ -71,7 +71,7 @@ Agent containers each use ~300–500MB (Chromium + Claude Code). The `.env.examp
 - `NODE_OPTIONS=--max-old-space-size=384` — Node.js heap cap
 
 ## Critical Operational Notes
-
+- **DO NOT USE cc10x !!!!**
 - **Back up `store/auth/` immediately after pairing** — losing it requires re-pairing the phone number.
 - **Backup archives contain `.env`** (API key). The backup dir is `chmod 700` and archives are `chmod 600`.
 - `SupplementaryGroups=docker` in the service unit (not `Group=docker`) — preserves the user's primary group while adding Docker socket access.
