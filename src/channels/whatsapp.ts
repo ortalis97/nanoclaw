@@ -13,6 +13,7 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 
 import {
+  ALLOWED_SENDERS,
   ASSISTANT_HAS_OWN_NUMBER,
   ASSISTANT_NAME,
   STORE_DIR,
@@ -32,6 +33,7 @@ export interface WhatsAppChannelOpts {
   onMessage: OnInboundMessage;
   onChatMetadata: OnChatMetadata;
   registeredGroups: () => Record<string, RegisteredGroup>;
+  onAutoRegister?: (chatJid: string, isGroup: boolean, name: string) => void;
 }
 
 export class WhatsAppChannel implements Channel {
@@ -44,6 +46,7 @@ export class WhatsAppChannel implements Channel {
   private flushing = false;
   private groupSyncTimerStarted = false;
 
+  private groupParticipants: Map<string, Set<string>> = new Map();
   private opts: WhatsAppChannelOpts;
 
   constructor(opts: WhatsAppChannelOpts) {
@@ -188,8 +191,20 @@ export class WhatsAppChannel implements Channel {
           Number(msg.messageTimestamp) * 1000,
         ).toISOString();
 
-        // Always notify about chat metadata for group discovery
         const isGroup = chatJid.endsWith('@g.us');
+
+        // --- Sender allowlist ---
+        if (ALLOWED_SENDERS) {
+          if (isGroup) {
+            if (!(await this.hasAllowedMember(chatJid))) continue;
+          } else {
+            const fromMe = msg.key.fromMe || false;
+            const sender = msg.key.participant || msg.key.remoteJid || '';
+            if (!fromMe && !ALLOWED_SENDERS.has(sender)) continue;
+          }
+        }
+
+        // Always notify about chat metadata for group discovery
         this.opts.onChatMetadata(
           chatJid,
           timestamp,
@@ -199,7 +214,13 @@ export class WhatsAppChannel implements Channel {
         );
 
         // Only deliver full message for registered groups
-        const groups = this.opts.registeredGroups();
+        let groups = this.opts.registeredGroups();
+        if (!groups[chatJid] && this.opts.onAutoRegister) {
+          const senderForName = msg.key.participant || msg.key.remoteJid || '';
+          const chatName = msg.pushName || senderForName.split('@')[0] || chatJid.split('@')[0];
+          this.opts.onAutoRegister(chatJid, isGroup, chatName);
+          groups = this.opts.registeredGroups();
+        }
         if (groups[chatJid]) {
           const content =
             normalized.conversation ||
@@ -318,6 +339,12 @@ export class WhatsAppChannel implements Channel {
           updateChatName(jid, metadata.subject);
           count++;
         }
+        if (metadata.participants) {
+          this.groupParticipants.set(
+            jid,
+            new Set(metadata.participants.map(p => p.id)),
+          );
+        }
       }
 
       setLastGroupSync();
@@ -325,6 +352,27 @@ export class WhatsAppChannel implements Channel {
     } catch (err) {
       logger.error({ err }, 'Failed to sync group metadata');
     }
+  }
+
+  private async hasAllowedMember(groupJid: string): Promise<boolean> {
+    if (!ALLOWED_SENDERS) return true;
+
+    let members = this.groupParticipants.get(groupJid);
+    if (!members) {
+      try {
+        const meta = await this.sock.groupMetadata(groupJid);
+        members = new Set(meta.participants.map(p => p.id));
+        this.groupParticipants.set(groupJid, members);
+      } catch (err) {
+        logger.warn({ groupJid, err }, 'Failed to fetch group metadata for allowlist check');
+        return false;
+      }
+    }
+
+    for (const allowed of ALLOWED_SENDERS) {
+      if (members.has(allowed)) return true;
+    }
+    return false;
   }
 
   private async translateJid(jid: string): Promise<string> {

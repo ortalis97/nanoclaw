@@ -101,6 +101,24 @@ function registerGroup(jid: string, group: RegisteredGroup): void {
   );
 }
 
+function autoRegisterChat(chatJid: string, isGroup: boolean, name: string): void {
+  if (registeredGroups[chatJid]) return;
+
+  const folder = isGroup
+    ? `group_${chatJid.split('@')[0]}`
+    : `dm_${chatJid.split('@')[0]}`;
+
+  registerGroup(chatJid, {
+    name,
+    folder,
+    trigger: `@${ASSISTANT_NAME}`,
+    added_at: new Date().toISOString(),
+    requiresTrigger: isGroup,
+  });
+
+  logger.info({ chatJid, folder, isGroup, name }, 'Auto-registered chat');
+}
+
 /**
  * Get available groups list for the agent.
  * Returns groups ordered by most recent activity.
@@ -472,6 +490,7 @@ async function main(): Promise<void> {
       isGroup?: boolean,
     ) => storeChatMetadata(chatJid, timestamp, name, channel, isGroup),
     registeredGroups: () => registeredGroups,
+    onAutoRegister: autoRegisterChat,
   };
 
   // Create and connect channels
