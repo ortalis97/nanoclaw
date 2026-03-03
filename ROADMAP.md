@@ -6,6 +6,7 @@
 
 ## Ideas
 
+- [ ] Upgrade Oracle VM (or switch to a beefier machine) to run local models (Llama, Mistral, etc.) — could be cheaper than API costs at Alfred's usage scale. Explore when API spend becomes a clear recurring concern.
 - [ ] ...
 
 ## Bugs
@@ -18,6 +19,7 @@
 
 ## Done
 
+- [x] `AGENT_MODEL` env var — configurable Claude model per deployment (e.g. Haiku for cost savings)
 - [x] Oracle Cloud VM deployment (systemd + logrotate + daily backup)
 - [x] Sender allowlist (`ALLOWED_SENDERS`) — auto-register on first message
 - [x] Default timezone `Asia/Jerusalem` for scheduled tasks

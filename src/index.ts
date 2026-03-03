@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import {
+  AGENT_MODEL,
   ASSISTANT_NAME,
   IDLE_TIMEOUT,
   MAIN_GROUP_FOLDER,
@@ -321,6 +322,7 @@ async function runAgent(
         chatJid,
         isMain,
         assistantName: ASSISTANT_NAME,
+        model: AGENT_MODEL,
       },
       (proc, containerName) =>
         queue.registerProcess(chatJid, proc, containerName, group.folder),

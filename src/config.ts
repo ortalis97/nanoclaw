@@ -12,6 +12,7 @@ const envConfig = readEnvFile([
   'ALLOWED_SENDERS',
   'ASSISTANT_HEBREW_NAME',
   'TZ',
+  'AGENT_MODEL',
 ]);
 
 // Apply TZ from .env early so all date/timezone operations use the right timezone.
@@ -58,6 +59,10 @@ export const MAIN_GROUP_FOLDER = 'main';
 
 export const CONTAINER_IMAGE =
   process.env.CONTAINER_IMAGE || 'nanoclaw-agent:latest';
+// Claude model used by agent containers. Unset = SDK default (claude-sonnet).
+// Set to e.g. "claude-haiku-4-5-20251001" to reduce API cost.
+export const AGENT_MODEL: string | undefined =
+  process.env.AGENT_MODEL || envConfig.AGENT_MODEL || undefined;
 export const CONTAINER_TIMEOUT = parseInt(
   process.env.CONTAINER_TIMEOUT || '1800000',
   10,
