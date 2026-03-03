@@ -17,7 +17,7 @@ echo ">>> Pulling on VM..."
 $SSH "cd /opt/nanoclaw && git pull origin main"
 
 echo ">>> Installing deps + building..."
-$SSH "cd /opt/nanoclaw && NODE_OPTIONS='--max-old-space-size=512' npm install && npm run build"
+$SSH "cd /opt/nanoclaw && NODE_OPTIONS='--max-old-space-size=512' npm install --legacy-peer-deps && npm run build"
 
 if [[ "${1:-}" == "--rebuild-docker" ]]; then
   echo ">>> Rebuilding Docker image (this takes 10-15 min)..."
