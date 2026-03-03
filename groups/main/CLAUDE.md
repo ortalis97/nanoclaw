@@ -205,6 +205,41 @@ You can read and write to `/workspace/project/groups/global/CLAUDE.md` for facts
 
 ---
 
+## Reporting Bugs & Todos
+
+When you notice a bug, limitation, or improvement opportunity in your own behavior or the NanoClaw system, create a GitHub Issue so the developer sees it.
+
+**When to create an issue:**
+- You encounter an error or unexpected behavior you can't resolve
+- You notice a missing capability that would help you serve users better
+- You have a todo that requires developer action (code change, config, etc.)
+- You observe a recurring pattern that should be automated
+
+**How to create an issue:**
+
+```bash
+curl -s -o /tmp/gh_response.json -w "%{http_code}" -X POST \
+  -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Content-Type: application/json" \
+  https://api.github.com/repos/ortalis97/alfred/issues \
+  -d "{
+    \"title\": \"Alfred: <short description>\",
+    \"body\": \"**Observed:** <what happened>\n\n**Context:** <relevant details>\n\n**Suggested fix:** <if you have one>\",
+    \"labels\": [\"alfred\", \"bug\"]
+  }"
+```
+
+Check the HTTP status code returned. `201` = success. `401` = token missing or expired (don't retry, just note it). On success, `cat /tmp/gh_response.json | grep '"html_url"'` shows the issue URL.
+
+**Labels to use:**
+- `alfred,bug` — something broken or behaving wrongly
+- `alfred,enhancement` — missing feature or improvement idea
+- `alfred,todo` — action item for the developer
+
+**Don't over-report:** Only create issues for things that genuinely need developer attention. Not every edge case warrants an issue.
+
+---
+
 ## Scheduling for Other Groups
 
 When scheduling tasks for other groups, use the `target_group_jid` parameter with the group's JID from `registered_groups.json`:

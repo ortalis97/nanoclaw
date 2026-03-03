@@ -87,6 +87,15 @@ tail -f /opt/nanoclaw/logs/nanoclaw.log
 tail -f /opt/nanoclaw/logs/nanoclaw.error.log
 ```
 
+## Environment Sync Rule
+
+**Local `.env` and VM `/opt/nanoclaw/.env` must stay in sync.**
+
+- Local may be ahead (e.g. experimenting with new vars) — that's fine.
+- Local must **never be behind** the VM — if a var is set on the VM it must also exist locally.
+- When adding a new env var: update both files in the same session. Update `.env.example` too.
+- To verify sync: `diff <(grep -v '^#' .env | grep -v '^$' | sort) <(ssh -i ~/.ssh/your-ssh-key ubuntu@VM_IP_REDACTED "grep -v '^#' /opt/nanoclaw/.env | grep -v '^$' | sort")`
+
 ## Ongoing Development Workflow
 
 Edit code locally → commit → run `deploy/deploy-changes.sh`.

@@ -101,7 +101,11 @@ function registerGroup(jid: string, group: RegisteredGroup): void {
   );
 }
 
-function autoRegisterChat(chatJid: string, isGroup: boolean, name: string): void {
+function autoRegisterChat(
+  chatJid: string,
+  isGroup: boolean,
+  name: string,
+): void {
   if (registeredGroups[chatJid]) return;
 
   const folder = isGroup
