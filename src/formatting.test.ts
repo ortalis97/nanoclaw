@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { ASSISTANT_NAME, TRIGGER_PATTERN } from './config.js';
+import { ASSISTANT_HEBREW_NAME, ASSISTANT_NAME, TRIGGER_PATTERN } from './config.js';
 import {
   escapeXml,
   formatMessages,
@@ -139,6 +139,38 @@ describe('TRIGGER_PATTERN', () => {
   it('matches with leading whitespace after trim', () => {
     // The actual usage trims before testing: TRIGGER_PATTERN.test(m.content.trim())
     expect(TRIGGER_PATTERN.test(`@${name} hey`.trim())).toBe(true);
+  });
+});
+
+describe('TRIGGER_PATTERN — Hebrew name', () => {
+  const heb = ASSISTANT_HEBREW_NAME;
+
+  // These tests only run when ASSISTANT_HEBREW_NAME is configured
+  const it_ = heb ? it : it.skip;
+
+  it_('matches Hebrew name at start of message', () => {
+    expect(TRIGGER_PATTERN.test(`${heb} מה המצב`)).toBe(true);
+  });
+
+  it_('matches @Hebrew name at start of message', () => {
+    expect(TRIGGER_PATTERN.test(`@${heb} מה המצב`)).toBe(true);
+  });
+
+  it_('matches Hebrew name mid-sentence', () => {
+    expect(TRIGGER_PATTERN.test(`שאל את ${heb} בבקשה`)).toBe(true);
+  });
+
+  it_('matches Hebrew name at end of message', () => {
+    expect(TRIGGER_PATTERN.test(`תשאל את ${heb}`)).toBe(true);
+  });
+
+  it_('matches Hebrew name alone', () => {
+    expect(TRIGGER_PATTERN.test(`${heb}`)).toBe(true);
+  });
+
+  it_('does not match Hebrew name as substring of a longer word', () => {
+    // e.g. a word that starts with the Hebrew name but continues
+    expect(TRIGGER_PATTERN.test(`${heb}ים`)).toBe(false);
   });
 });
 

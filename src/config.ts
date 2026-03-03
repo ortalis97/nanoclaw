@@ -6,10 +6,12 @@ import { readEnvFile } from './env.js';
 // Read config values from .env (falls back to process.env).
 // Secrets are NOT read here — they stay on disk and are loaded only
 // where needed (container-runner.ts) to avoid leaking to child processes.
-const envConfig = readEnvFile(['ASSISTANT_NAME', 'ASSISTANT_HAS_OWN_NUMBER', 'ALLOWED_SENDERS']);
+const envConfig = readEnvFile(['ASSISTANT_NAME', 'ASSISTANT_HAS_OWN_NUMBER', 'ALLOWED_SENDERS', 'ASSISTANT_HEBREW_NAME']);
 
 export const ASSISTANT_NAME =
   process.env.ASSISTANT_NAME || envConfig.ASSISTANT_NAME || 'Andy';
+export const ASSISTANT_HEBREW_NAME =
+  process.env.ASSISTANT_HEBREW_NAME || envConfig.ASSISTANT_HEBREW_NAME || '';
 export const ASSISTANT_HAS_OWN_NUMBER =
   (process.env.ASSISTANT_HAS_OWN_NUMBER ||
     envConfig.ASSISTANT_HAS_OWN_NUMBER) === 'true';
@@ -59,9 +61,16 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// Primary trigger: @AssistantName at start of message (English, case-insensitive)
+// Hebrew trigger: AssistantName in Hebrew (with optional @) anywhere in message,
+// using Unicode-aware word boundaries (\p{L}|\p{N}) since \b doesn't apply to Hebrew chars.
+const hebrewTriggerPart = ASSISTANT_HEBREW_NAME
+  ? `|(?<![\\p{L}\\p{N}])@?${escapeRegex(ASSISTANT_HEBREW_NAME)}(?![\\p{L}\\p{N}])`
+  : '';
+
 export const TRIGGER_PATTERN = new RegExp(
-  `^@${escapeRegex(ASSISTANT_NAME)}\\b`,
-  'i',
+  `(^@${escapeRegex(ASSISTANT_NAME)}\\b${hebrewTriggerPart})`,
+  'iu',
 );
 
 // Timezone for scheduled tasks (cron expressions, etc.)
