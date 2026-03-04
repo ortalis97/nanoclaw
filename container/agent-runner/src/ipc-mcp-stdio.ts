@@ -20,6 +20,12 @@ const chatJid = process.env.NANOCLAW_CHAT_JID!;
 const groupFolder = process.env.NANOCLAW_GROUP_FOLDER!;
 const isMain = process.env.NANOCLAW_IS_MAIN === '1';
 
+const VOICE_MAX_TEXT_LENGTH = parseInt(process.env.VOICE_MAX_TEXT_LENGTH || '500', 10);
+const VOICE_MAX_PER_SESSION = parseInt(process.env.VOICE_MAX_PER_SESSION || '3', 10);
+
+// Session-level counter — resets when the container restarts
+let voiceMessageCount = 0;
+
 function writeIpcFile(dir: string, data: object): string {
   fs.mkdirSync(dir, { recursive: true });
 
@@ -277,6 +283,41 @@ Use available_groups.json to find the JID for a group. The folder name should be
     return {
       content: [{ type: 'text' as const, text: `Group "${args.name}" registered. It will start receiving messages immediately.` }],
     };
+  },
+);
+
+server.tool(
+  'send_voice_message',
+  'Send a voice note (PTT audio) to the chat. Use when the user explicitly asks for a voice/audio reply, or when replying to a voice message and a spoken response feels natural. Falls back to text automatically if voice synthesis is unavailable.',
+  { text: z.string().describe('The text to speak (max ~500 chars — keep it conversational and natural-sounding)') },
+  async (args) => {
+    if (args.text.length > VOICE_MAX_TEXT_LENGTH) {
+      return {
+        content: [{ type: 'text' as const, text: `Text too long (${args.text.length} chars, max ${VOICE_MAX_TEXT_LENGTH}). Shorten the message or use send_message instead.` }],
+        isError: true,
+      };
+    }
+
+    if (voiceMessageCount >= VOICE_MAX_PER_SESSION) {
+      return {
+        content: [{ type: 'text' as const, text: `Voice message limit reached (${VOICE_MAX_PER_SESSION} per session). Use send_message to send as text instead.` }],
+        isError: true,
+      };
+    }
+
+    voiceMessageCount++;
+
+    const data = {
+      type: 'voice_message',
+      chatJid,
+      text: args.text,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    };
+
+    writeIpcFile(MESSAGES_DIR, data);
+
+    return { content: [{ type: 'text' as const, text: 'Voice message queued.' }] };
   },
 );
 

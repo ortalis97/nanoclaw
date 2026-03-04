@@ -20,6 +20,7 @@ import {
 } from '../config.js';
 import { getLastGroupSync, setLastGroupSync, updateChatName } from '../db.js';
 import { logger } from '../logger.js';
+import { MessagePacer, ExponentialBackoff } from '../rate-limiter.js';
 import { isVoiceMessage, transcribeAudioMessage } from '../transcription.js';
 import {
   Channel,
@@ -49,6 +50,8 @@ export class WhatsAppChannel implements Channel {
 
   private groupParticipants: Map<string, Set<string>> = new Map();
   private opts: WhatsAppChannelOpts;
+  private messagePacer = new MessagePacer(1500, 3000);
+  private backoff = new ExponentialBackoff(2000, 3);
 
   constructor(opts: WhatsAppChannelOpts) {
     this.opts = opts;
@@ -257,7 +260,10 @@ export class WhatsAppChannel implements Channel {
               const transcript = await transcribeAudioMessage(msg, this.sock);
               if (transcript) {
                 finalContent = `[Voice: ${transcript}]`;
-                logger.info({ chatJid, length: transcript.length }, 'Transcribed voice message');
+                logger.info(
+                  { chatJid, length: transcript.length },
+                  'Transcribed voice message',
+                );
               } else {
                 finalContent = '[Voice Message - transcription unavailable]';
               }
@@ -300,7 +306,10 @@ export class WhatsAppChannel implements Channel {
       return;
     }
     try {
-      await this.sock.sendMessage(jid, { text: prefixed });
+      await this.messagePacer.pace(jid);
+      await this.backoff.execute(() =>
+        this.sock.sendMessage(jid, { text: prefixed }),
+      );
       logger.info({ jid, length: prefixed.length }, 'Message sent');
     } catch (err) {
       // If send fails, queue it for retry on reconnect
@@ -309,6 +318,23 @@ export class WhatsAppChannel implements Channel {
         { jid, err, queueSize: this.outgoingQueue.length },
         'Failed to send, message queued',
       );
+    }
+  }
+
+  async sendVoiceMessage(jid: string, audio: Buffer): Promise<void> {
+    if (!this.connected) {
+      logger.warn({ jid }, 'WA disconnected, dropping voice message (best-effort)');
+      return;
+    }
+    try {
+      await this.sock.sendMessage(jid, {
+        audio,
+        mimetype: 'audio/ogg; codecs=opus',
+        ptt: true,
+      });
+      logger.info({ jid, bytes: audio.length }, 'Voice message sent');
+    } catch (err) {
+      logger.warn({ jid, err }, 'Failed to send voice message');
     }
   }
 

@@ -52,6 +52,7 @@ beforeEach(() => {
 
   deps = {
     sendMessage: async () => {},
+    synthesizeAndSendVoice: async () => {},
     registeredGroups: () => groups,
     registerGroup: (jid, group) => {
       groups[jid] = group;
