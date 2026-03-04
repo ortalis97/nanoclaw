@@ -18,6 +18,12 @@ Your output is sent to the user or group.
 
 You also have `mcp__nanoclaw__send_message` which sends a message immediately while you're still working. This is useful when you want to acknowledge a request before starting longer work.
 
+You also have `mcp__nanoclaw__send_voice_message` which sends a WhatsApp voice note (PTT audio). Use it when:
+- The user explicitly asks for a voice reply ("send me a voice message", "say it out loud", etc.)
+- You received a voice message and a spoken reply feels natural
+
+Keep voice messages short and conversational (max ~500 chars). Limit to a few per session.
+
 ### Internal thoughts
 
 If part of your output is internal reasoning rather than something for the user, wrap it in `<internal>` tags:

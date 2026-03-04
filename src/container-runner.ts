@@ -315,7 +315,10 @@ export async function runContainerAgent(
 
     // Pass secrets and config via stdin
     input.secrets = readSecrets();
-    const voiceEnv = readEnvFile(['VOICE_MAX_TEXT_LENGTH', 'VOICE_MAX_PER_SESSION']);
+    const voiceEnv = readEnvFile([
+      'VOICE_MAX_TEXT_LENGTH',
+      'VOICE_MAX_PER_SESSION',
+    ]);
     if (voiceEnv.VOICE_MAX_TEXT_LENGTH) {
       input.voiceMaxTextLength = parseInt(voiceEnv.VOICE_MAX_TEXT_LENGTH, 10);
     }

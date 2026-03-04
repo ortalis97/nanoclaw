@@ -36,6 +36,16 @@ vi.mock('../transcription.js', () => ({
     .mockResolvedValue('Hello this is a voice message'),
 }));
 
+// Mock rate limiter with no delays for tests
+vi.mock('../rate-limiter.js', () => ({
+  MessagePacer: class MockMessagePacer {
+    pace = vi.fn().mockResolvedValue(undefined); // No delay
+  },
+  ExponentialBackoff: class MockExponentialBackoff {
+    execute = vi.fn().mockImplementation((fn) => fn()); // Execute immediately
+  },
+}));
+
 // Mock fs
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
