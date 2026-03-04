@@ -451,7 +451,8 @@ async function runQuery(
         'TeamCreate', 'TeamDelete', 'SendMessage',
         'TodoWrite', 'ToolSearch', 'Skill',
         'NotebookEdit',
-        'mcp__nanoclaw__*'
+        'mcp__nanoclaw__*',
+        'mcp__notion__*',
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
@@ -467,6 +468,13 @@ async function runQuery(
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
             VOICE_MAX_TEXT_LENGTH: containerInput.voiceMaxTextLength != null ? String(containerInput.voiceMaxTextLength) : '500',
             VOICE_MAX_PER_SESSION: containerInput.voiceMaxPerSession != null ? String(containerInput.voiceMaxPerSession) : '3',
+          },
+        },
+        notion: {
+          command: 'node',
+          args: ['/app/node_modules/@notionhq/notion-mcp-server/bin/cli.mjs'],
+          env: {
+            NOTION_TOKEN: (containerInput.secrets || {})['NOTION_TOKEN'] || '',
           },
         },
       },
