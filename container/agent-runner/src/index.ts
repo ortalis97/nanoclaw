@@ -29,6 +29,8 @@ interface ContainerInput {
   assistantName?: string;
   model?: string;
   secrets?: Record<string, string>;
+  voiceMaxTextLength?: number;
+  voiceMaxPerSession?: number;
 }
 
 interface ContainerOutput {
@@ -448,6 +450,8 @@ async function runQuery(
             NANOCLAW_CHAT_JID: containerInput.chatJid,
             NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
+            VOICE_MAX_TEXT_LENGTH: containerInput.voiceMaxTextLength != null ? String(containerInput.voiceMaxTextLength) : '500',
+            VOICE_MAX_PER_SESSION: containerInput.voiceMaxPerSession != null ? String(containerInput.voiceMaxPerSession) : '3',
           },
         },
       },

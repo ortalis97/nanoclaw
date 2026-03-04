@@ -38,6 +38,7 @@ import {
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
+import { synthesizeSpeech } from './tts.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
@@ -526,6 +527,16 @@ async function main(): Promise<void> {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
       return channel.sendMessage(jid, text);
+    },
+    synthesizeAndSendVoice: async (jid, text) => {
+      const audio = await synthesizeSpeech(text);
+      if (audio) {
+        await whatsapp.sendVoiceMessage(jid, audio);
+      } else {
+        // TTS failed — fall back to text
+        const channel = findChannel(channels, jid);
+        if (channel) await channel.sendMessage(jid, text);
+      }
     },
     registeredGroups: () => registeredGroups,
     registerGroup,

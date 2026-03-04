@@ -40,6 +40,8 @@ export interface ContainerInput {
   assistantName?: string;
   model?: string;
   secrets?: Record<string, string>;
+  voiceMaxTextLength?: number;
+  voiceMaxPerSession?: number;
 }
 
 export interface ContainerOutput {
@@ -311,8 +313,15 @@ export async function runContainerAgent(
     let stdoutTruncated = false;
     let stderrTruncated = false;
 
-    // Pass secrets via stdin (never written to disk or mounted as files)
+    // Pass secrets and config via stdin
     input.secrets = readSecrets();
+    const voiceEnv = readEnvFile(['VOICE_MAX_TEXT_LENGTH', 'VOICE_MAX_PER_SESSION']);
+    if (voiceEnv.VOICE_MAX_TEXT_LENGTH) {
+      input.voiceMaxTextLength = parseInt(voiceEnv.VOICE_MAX_TEXT_LENGTH, 10);
+    }
+    if (voiceEnv.VOICE_MAX_PER_SESSION) {
+      input.voiceMaxPerSession = parseInt(voiceEnv.VOICE_MAX_PER_SESSION, 10);
+    }
     container.stdin.write(JSON.stringify(input));
     container.stdin.end();
     // Remove secrets from input so they don't appear in logs

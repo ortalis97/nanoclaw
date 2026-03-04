@@ -31,7 +31,9 @@ vi.mock('../db.js', () => ({
 // Mock transcription
 vi.mock('../transcription.js', () => ({
   isVoiceMessage: vi.fn((msg: any) => msg.message?.audioMessage?.ptt === true),
-  transcribeAudioMessage: vi.fn().mockResolvedValue('Hello this is a voice message'),
+  transcribeAudioMessage: vi
+    .fn()
+    .mockResolvedValue('Hello this is a voice message'),
 }));
 
 // Mock fs
@@ -567,7 +569,9 @@ describe('WhatsAppChannel', () => {
       expect(opts.onMessage).toHaveBeenCalledTimes(1);
       expect(opts.onMessage).toHaveBeenCalledWith(
         'registered@g.us',
-        expect.objectContaining({ content: '[Voice: Hello this is a voice message]' }),
+        expect.objectContaining({
+          content: '[Voice: Hello this is a voice message]',
+        }),
       );
     });
 
@@ -598,12 +602,16 @@ describe('WhatsAppChannel', () => {
       expect(opts.onMessage).toHaveBeenCalledTimes(1);
       expect(opts.onMessage).toHaveBeenCalledWith(
         'registered@g.us',
-        expect.objectContaining({ content: '[Voice Message - transcription unavailable]' }),
+        expect.objectContaining({
+          content: '[Voice Message - transcription unavailable]',
+        }),
       );
     });
 
     it('falls back when transcription throws', async () => {
-      vi.mocked(transcribeAudioMessage).mockRejectedValueOnce(new Error('API error'));
+      vi.mocked(transcribeAudioMessage).mockRejectedValueOnce(
+        new Error('API error'),
+      );
 
       const opts = createTestOpts();
       const channel = new WhatsAppChannel(opts);
@@ -629,7 +637,9 @@ describe('WhatsAppChannel', () => {
       expect(opts.onMessage).toHaveBeenCalledTimes(1);
       expect(opts.onMessage).toHaveBeenCalledWith(
         'registered@g.us',
-        expect.objectContaining({ content: '[Voice Message - transcription failed]' }),
+        expect.objectContaining({
+          content: '[Voice Message - transcription failed]',
+        }),
       );
     });
 
@@ -961,6 +971,52 @@ describe('WhatsAppChannel', () => {
     it('does not own unknown JID formats', () => {
       const channel = new WhatsAppChannel(createTestOpts());
       expect(channel.ownsJid('random-string')).toBe(false);
+    });
+  });
+
+  // --- Voice message sending ---
+
+  describe('sendVoiceMessage', () => {
+    it('sends PTT audio when connected', async () => {
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+
+      await connectChannel(channel);
+
+      const audio = Buffer.from('fake-opus-data');
+      await channel.sendVoiceMessage('test@g.us', audio);
+
+      expect(fakeSocket.sendMessage).toHaveBeenCalledWith('test@g.us', {
+        audio,
+        mimetype: 'audio/ogg; codecs=opus',
+        ptt: true,
+      });
+    });
+
+    it('drops voice message silently when disconnected', async () => {
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+
+      // Don't connect
+      const audio = Buffer.from('fake-opus-data');
+      await channel.sendVoiceMessage('test@g.us', audio);
+
+      expect(fakeSocket.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('handles send failure gracefully', async () => {
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+
+      await connectChannel(channel);
+
+      fakeSocket.sendMessage.mockRejectedValueOnce(new Error('Network error'));
+
+      const audio = Buffer.from('fake-opus-data');
+      // Should not throw
+      await expect(
+        channel.sendVoiceMessage('test@g.us', audio),
+      ).resolves.toBeUndefined();
     });
   });
 
