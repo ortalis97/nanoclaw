@@ -134,8 +134,7 @@ export class ExponentialBackoff {
     try {
       return await fn();
     } catch (err: any) {
-      const is440 =
-        err?.output?.statusCode === 440 || err?.statusCode === 440;
+      const is440 = err?.output?.statusCode === 440 || err?.statusCode === 440;
       const shouldRetry = is440 && attempt < this.maxRetries;
 
       if (!shouldRetry) {
@@ -161,9 +160,12 @@ export class ExponentialBackoff {
 /**
  * Cleanup old rate limiter data periodically.
  * Call this on an interval (e.g., every 5 minutes).
+ * @returns Timer ID that can be cleared with clearInterval()
  */
-export function startRateLimiterCleanup(limiter: PerUserRateLimiter): void {
-  setInterval(
+export function startRateLimiterCleanup(
+  limiter: PerUserRateLimiter,
+): NodeJS.Timeout {
+  return setInterval(
     () => {
       limiter.cleanup();
       logger.debug('Rate limiter history cleaned up');

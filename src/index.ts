@@ -38,6 +38,7 @@ import {
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
+import { PerUserRateLimiter, startRateLimiterCleanup } from './rate-limiter.js';
 import { synthesizeSpeech } from './tts.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
 import { startSchedulerLoop } from './task-scheduler.js';
@@ -56,6 +57,8 @@ let messageLoopRunning = false;
 let whatsapp: WhatsAppChannel;
 const channels: Channel[] = [];
 const queue = new GroupQueue();
+const perUserLimiter = new PerUserRateLimiter(3, 60_000);
+let rateLimiterCleanupTimer: NodeJS.Timeout | undefined;
 
 function loadState(): void {
   lastTimestamp = getRouterState('last_timestamp') || '';
@@ -409,6 +412,20 @@ async function startMessageLoop(): Promise<void> {
             if (!hasTrigger) continue;
           }
 
+          // Rate limit check: prevent individual users from spamming the agent
+          // Find the sender who actually triggered (not just first message sender)
+          const triggerMessage = needsTrigger
+            ? groupMessages.find((m) => TRIGGER_PATTERN.test(m.content.trim()))
+            : groupMessages[0];
+          const sender = triggerMessage?.sender;
+          if (sender && !perUserLimiter.checkLimit(sender)) {
+            logger.info(
+              { sender, chatJid },
+              'Sender rate limited, skipping trigger',
+            );
+            continue;
+          }
+
           // Pull all messages since lastAgentTimestamp so non-trigger
           // context that accumulated between triggers is included.
           const allPending = getMessagesSince(
@@ -475,10 +492,12 @@ async function main(): Promise<void> {
   initDatabase();
   logger.info('Database initialized');
   loadState();
+  rateLimiterCleanupTimer = startRateLimiterCleanup(perUserLimiter);
 
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');
+    if (rateLimiterCleanupTimer) clearInterval(rateLimiterCleanupTimer);
     await queue.shutdown(10000);
     for (const ch of channels) await ch.disconnect();
     process.exit(0);

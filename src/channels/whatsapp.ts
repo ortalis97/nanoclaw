@@ -306,10 +306,10 @@ export class WhatsAppChannel implements Channel {
       return;
     }
     try {
-      await this.messagePacer.pace(jid);
-      await this.backoff.execute(() =>
-        this.sock.sendMessage(jid, { text: prefixed }),
-      );
+      await this.backoff.execute(async () => {
+        await this.messagePacer.pace(jid);
+        await this.sock.sendMessage(jid, { text: prefixed });
+      });
       logger.info({ jid, length: prefixed.length }, 'Message sent');
     } catch (err) {
       // If send fails, queue it for retry on reconnect
@@ -323,14 +323,20 @@ export class WhatsAppChannel implements Channel {
 
   async sendVoiceMessage(jid: string, audio: Buffer): Promise<void> {
     if (!this.connected) {
-      logger.warn({ jid }, 'WA disconnected, dropping voice message (best-effort)');
+      logger.warn(
+        { jid },
+        'WA disconnected, dropping voice message (best-effort)',
+      );
       return;
     }
     try {
-      await this.sock.sendMessage(jid, {
-        audio,
-        mimetype: 'audio/ogg; codecs=opus',
-        ptt: true,
+      await this.backoff.execute(async () => {
+        await this.messagePacer.pace(jid);
+        await this.sock.sendMessage(jid, {
+          audio,
+          mimetype: 'audio/ogg; codecs=opus',
+          ptt: true,
+        });
       });
       logger.info({ jid, bytes: audio.length }, 'Voice message sent');
     } catch (err) {
@@ -472,7 +478,10 @@ export class WhatsAppChannel implements Channel {
       while (this.outgoingQueue.length > 0) {
         const item = this.outgoingQueue.shift()!;
         // Send directly — queued items are already prefixed by sendMessage
-        await this.sock.sendMessage(item.jid, { text: item.text });
+        await this.backoff.execute(async () => {
+          await this.messagePacer.pace(item.jid);
+          await this.sock.sendMessage(item.jid, { text: item.text });
+        });
         logger.info(
           { jid: item.jid, length: item.text.length },
           'Queued message sent',

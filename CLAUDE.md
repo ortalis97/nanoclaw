@@ -96,6 +96,27 @@ tail -f /opt/nanoclaw/logs/nanoclaw.error.log
 - When adding a new env var: update both files in the same session. Update `.env.example` too.
 - To verify sync: `diff <(grep -v '^#' .env | grep -v '^$' | sort) <(ssh -i ~/.ssh/oracle.key ubuntu@158.178.129.108 "grep -v '^#' /opt/nanoclaw/.env | grep -v '^$' | sort")`
 
+## Agent-Runner Source Updates (MCP Tools / Container Code)
+
+Changes to `container/agent-runner/src/` (e.g. adding MCP tools in `ipc-mcp-stdio.ts`) require a **fresh container** to take effect. This is because:
+
+1. On first use, the agent-runner source is copied once from `container/agent-runner/src/` into `data/sessions/<group>/agent-runner-src/` and never overwritten.
+2. Inside the container, `entrypoint.sh` compiles that per-group copy — so a running or previously-used container has the old compiled code.
+
+**After deploying MCP tool changes, for each affected group:**
+
+```bash
+# 1. Kill any running container for that group
+docker kill $(docker ps --filter name=nanoclaw-<groupfolder> -q) 2>/dev/null
+
+# 2. Delete the stale per-group agent-runner source so it gets re-copied fresh
+rm -rf /opt/nanoclaw/data/sessions/<groupfolder>/agent-runner-src
+```
+
+Find the correct `<groupfolder>` from the logs (`group:` field) or from `data/sessions/` on the VM — it's not always the same as the registered group name (e.g. DMs are named `user-dm`, not `personal`).
+
+The next message to that group will copy the fresh source, compile it, and the new tools will be available.
+
 ## Ongoing Development Workflow
 
 Edit code locally → commit → run `deploy/deploy-changes.sh`.

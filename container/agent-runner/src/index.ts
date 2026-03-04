@@ -58,6 +58,21 @@ interface SDKUserMessage {
   session_id: string;
 }
 
+const AUTH_ERROR_PATTERNS = [
+  /401/,
+  /authentication_error/i,
+  /invalid.?api.?key/i,
+  /unauthorized/i,
+  /token.*expired|expired.*token|credential.*expired/i,
+  /invalid.*token/i,
+  /permission_error/i,
+];
+
+function isAuthError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return AUTH_ERROR_PATTERNS.some(p => p.test(message));
+}
+
 const IPC_INPUT_DIR = '/workspace/ipc/input';
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
@@ -496,6 +511,35 @@ async function runQuery(
   return { newSessionId, lastAssistantUuid, closedDuringQuery };
 }
 
+/**
+ * Wraps runQuery() with a single retry on auth error.
+ * If OAuth is active and API key is available, removes the OAuth token from sdkEnv
+ * and retries with the API key. The removal is sticky — subsequent calls in the loop
+ * will also use the API key.
+ */
+async function runQueryWithFallback(
+  prompt: string,
+  sessionId: string | undefined,
+  mcpServerPath: string,
+  containerInput: ContainerInput,
+  sdkEnv: Record<string, string | undefined>,
+  resumeAt?: string,
+): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean }> {
+  try {
+    return await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
+  } catch (err) {
+    const hasOAuth = !!sdkEnv['CLAUDE_CODE_OAUTH_TOKEN'];
+    const hasApiKey = !!sdkEnv['ANTHROPIC_API_KEY'];
+    if (hasOAuth && hasApiKey && isAuthError(err)) {
+      log(`OAuth auth failed: ${err instanceof Error ? err.message : String(err)}`);
+      log('Falling back to ANTHROPIC_API_KEY...');
+      delete sdkEnv['CLAUDE_CODE_OAUTH_TOKEN'];
+      return await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
+    }
+    throw err;
+  }
+}
+
 async function main(): Promise<void> {
   let containerInput: ContainerInput;
 
@@ -547,7 +591,7 @@ async function main(): Promise<void> {
     while (true) {
       log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
 
-      const queryResult = await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
+      const queryResult = await runQueryWithFallback(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
       if (queryResult.newSessionId) {
         sessionId = queryResult.newSessionId;
       }
