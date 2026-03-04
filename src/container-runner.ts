@@ -224,6 +224,7 @@ function readSecrets(): Record<string, string> {
     'ANTHROPIC_BASE_URL',
     'ANTHROPIC_AUTH_TOKEN',
     'GITHUB_TOKEN',
+    'NOTION_TOKEN',
   ]);
 }
 
