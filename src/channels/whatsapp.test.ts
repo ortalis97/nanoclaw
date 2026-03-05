@@ -41,16 +41,12 @@ vi.mock('../transcription.js', () => ({
   transcribeAudioMessage: vi
     .fn()
     .mockResolvedValue('Hello this is a voice message'),
-  isImageMessage: vi.fn(
-    (msg: any) => msg.message?.imageMessage != null,
-  ),
+  isImageMessage: vi.fn((msg: any) => msg.message?.imageMessage != null),
   downloadImageMessage: vi.fn().mockResolvedValue({
     buffer: Buffer.from('fake-image-data'),
     mimetype: 'image/jpeg',
   }),
-  saveImageToGroup: vi
-    .fn()
-    .mockReturnValue('/workspace/group/images/test.jpg'),
+  saveImageToGroup: vi.fn().mockReturnValue('/workspace/group/images/test.jpg'),
 }));
 
 // Mock rate limiter with no delays for tests
@@ -708,7 +704,8 @@ describe('WhatsAppChannel', () => {
       expect(opts.onMessage).toHaveBeenCalledWith(
         'registered@g.us',
         expect.objectContaining({
-          content: '[Image — view it by reading: /workspace/group/images/test.jpg]',
+          content:
+            '[Image — view it by reading: /workspace/group/images/test.jpg]',
         }),
       );
     });
