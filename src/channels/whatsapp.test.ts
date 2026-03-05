@@ -3,12 +3,19 @@ import { EventEmitter } from 'events';
 
 // --- Mocks ---
 
+// Hoisted mutable config so individual tests can override ALLOWED_SENDERS
+const mockConfig = vi.hoisted(() => ({
+  allowedSenders: null as Set<string> | null,
+}));
+
 // Mock config
 vi.mock('../config.js', () => ({
   STORE_DIR: '/tmp/nanoclaw-test-store',
   ASSISTANT_NAME: 'Andy',
   ASSISTANT_HAS_OWN_NUMBER: false,
-  ALLOWED_SENDERS: null,
+  get ALLOWED_SENDERS() {
+    return mockConfig.allowedSenders;
+  },
 }));
 
 // Mock logger
@@ -34,6 +41,16 @@ vi.mock('../transcription.js', () => ({
   transcribeAudioMessage: vi
     .fn()
     .mockResolvedValue('Hello this is a voice message'),
+  isImageMessage: vi.fn(
+    (msg: any) => msg.message?.imageMessage != null,
+  ),
+  downloadImageMessage: vi.fn().mockResolvedValue({
+    buffer: Buffer.from('fake-image-data'),
+    mimetype: 'image/jpeg',
+  }),
+  saveImageToGroup: vi
+    .fn()
+    .mockReturnValue('/workspace/group/images/test.jpg'),
 }));
 
 // Mock rate limiter with no delays for tests
@@ -80,6 +97,7 @@ function createFakeSocket() {
     sendMessage: vi.fn().mockResolvedValue(undefined),
     sendPresenceUpdate: vi.fn().mockResolvedValue(undefined),
     groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
+    groupMetadata: vi.fn().mockResolvedValue({ participants: [] }),
     end: vi.fn(),
     // Expose the event emitter for triggering events in tests
     _ev: ev,
@@ -120,7 +138,11 @@ vi.mock('@whiskeysockets/baileys', () => {
 
 import { WhatsAppChannel, WhatsAppChannelOpts } from './whatsapp.js';
 import { getLastGroupSync, updateChatName, setLastGroupSync } from '../db.js';
-import { transcribeAudioMessage } from '../transcription.js';
+import {
+  transcribeAudioMessage,
+  downloadImageMessage,
+  saveImageToGroup,
+} from '../transcription.js';
 
 // --- Test helpers ---
 
@@ -166,7 +188,9 @@ async function triggerMessages(messages: unknown[]) {
 describe('WhatsAppChannel', () => {
   beforeEach(() => {
     fakeSocket = createFakeSocket();
+    vi.clearAllMocks();
     vi.mocked(getLastGroupSync).mockReturnValue(null);
+    mockConfig.allowedSenders = null; // default: no allowlist
   });
 
   afterEach(() => {
@@ -519,9 +543,13 @@ describe('WhatsAppChannel', () => {
         },
       ]);
 
+      // Image messages now include the path for the agent to read, not just the caption
       expect(opts.onMessage).toHaveBeenCalledWith(
         'registered@g.us',
-        expect.objectContaining({ content: 'Check this photo' }),
+        expect.objectContaining({
+          content:
+            '[Image with caption: "Check this photo" — view it by reading: /workspace/group/images/test.jpg]',
+        }),
       );
     });
 
@@ -649,6 +677,179 @@ describe('WhatsAppChannel', () => {
         'registered@g.us',
         expect.objectContaining({
           content: '[Voice Message - transcription failed]',
+        }),
+      );
+    });
+
+    it('downloads and saves image from allowed sender', async () => {
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+
+      await connectChannel(channel);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-img-1',
+            remoteJid: 'registered@g.us',
+            participant: '5551234@s.whatsapp.net',
+            fromMe: false,
+          },
+          message: {
+            imageMessage: { mimetype: 'image/jpeg' },
+          },
+          pushName: 'Alice',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      expect(downloadImageMessage).toHaveBeenCalled();
+      expect(saveImageToGroup).toHaveBeenCalled();
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'registered@g.us',
+        expect.objectContaining({
+          content: '[Image — view it by reading: /workspace/group/images/test.jpg]',
+        }),
+      );
+    });
+
+    it('includes caption alongside image path', async () => {
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+
+      await connectChannel(channel);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-img-2',
+            remoteJid: 'registered@g.us',
+            participant: '5551234@s.whatsapp.net',
+            fromMe: false,
+          },
+          message: {
+            imageMessage: { caption: 'Look at this', mimetype: 'image/jpeg' },
+          },
+          pushName: 'Alice',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'registered@g.us',
+        expect.objectContaining({
+          content:
+            '[Image with caption: "Look at this" — view it by reading: /workspace/group/images/test.jpg]',
+        }),
+      );
+    });
+
+    it('blocks image download from non-allowed sender', async () => {
+      // Only '9990000@s.whatsapp.net' is allowed; sender is '5551234@s.whatsapp.net'
+      mockConfig.allowedSenders = new Set(['9990000@s.whatsapp.net']);
+
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+      // Group has an allowed member (9990000) so the outer group check passes,
+      // but the image sender (5551234) is not allowed — download must be blocked.
+      fakeSocket.groupMetadata.mockResolvedValue({
+        participants: [
+          { id: '9990000@s.whatsapp.net' },
+          { id: '5551234@s.whatsapp.net' },
+        ],
+      });
+
+      await connectChannel(channel);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-img-3',
+            remoteJid: 'registered@g.us',
+            participant: '5551234@s.whatsapp.net', // NOT in ALLOWED_SENDERS
+            fromMe: false,
+          },
+          message: {
+            imageMessage: { mimetype: 'image/jpeg' },
+          },
+          pushName: 'Unknown',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      expect(downloadImageMessage).not.toHaveBeenCalled();
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'registered@g.us',
+        expect.objectContaining({
+          content:
+            '[Image from unauthorized sender — Alfred can only process images from allowed users]',
+        }),
+      );
+    });
+
+    it('does not skip image without caption (previously dropped)', async () => {
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+
+      await connectChannel(channel);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-img-4',
+            remoteJid: 'registered@g.us',
+            participant: '5551234@s.whatsapp.net',
+            fromMe: false,
+          },
+          message: {
+            imageMessage: { mimetype: 'image/png' },
+          },
+          pushName: 'Bob',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      // Message should NOT be skipped — onMessage should be called
+      expect(opts.onMessage).toHaveBeenCalledTimes(1);
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'registered@g.us',
+        expect.objectContaining({
+          content: expect.stringContaining('/workspace/group/images/'),
+        }),
+      );
+    });
+
+    it('falls back gracefully when image download fails', async () => {
+      vi.mocked(downloadImageMessage).mockRejectedValueOnce(
+        new Error('Network error'),
+      );
+
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+
+      await connectChannel(channel);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-img-5',
+            remoteJid: 'registered@g.us',
+            participant: '5551234@s.whatsapp.net',
+            fromMe: false,
+          },
+          message: {
+            imageMessage: { caption: 'Some caption', mimetype: 'image/jpeg' },
+          },
+          pushName: 'Carol',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      expect(opts.onMessage).toHaveBeenCalledTimes(1);
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'registered@g.us',
+        expect.objectContaining({
+          content: 'Some caption',
         }),
       );
     });

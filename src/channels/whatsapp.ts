@@ -21,7 +21,13 @@ import {
 import { getLastGroupSync, setLastGroupSync, updateChatName } from '../db.js';
 import { logger } from '../logger.js';
 import { MessagePacer, ExponentialBackoff } from '../rate-limiter.js';
-import { isVoiceMessage, transcribeAudioMessage } from '../transcription.js';
+import {
+  downloadImageMessage,
+  isImageMessage,
+  isVoiceMessage,
+  saveImageToGroup,
+  transcribeAudioMessage,
+} from '../transcription.js';
 import {
   Channel,
   OnInboundMessage,
@@ -237,9 +243,11 @@ export class WhatsAppChannel implements Channel {
             normalized.videoMessage?.caption ||
             '';
 
+          const isImage = isImageMessage(msg);
+
           // Skip protocol messages with no text content (encryption keys, read receipts, etc.)
           // but allow voice messages through for transcription
-          if (!content && !isVoiceMessage(msg)) continue;
+          if (!content && !isVoiceMessage(msg) && !isImage) continue;
 
           const sender = msg.key.participant || msg.key.remoteJid || '';
           const senderName = msg.pushName || sender.split('@')[0];
@@ -270,6 +278,50 @@ export class WhatsAppChannel implements Channel {
             } catch (err) {
               logger.error({ err }, 'Voice transcription error');
               finalContent = '[Voice Message - transcription failed]';
+            }
+          }
+
+          // Handle image messages
+          if (isImage) {
+            const imageSender = msg.key.participant || msg.key.remoteJid || '';
+            const senderIsAllowed =
+              !ALLOWED_SENDERS || ALLOWED_SENDERS.has(imageSender);
+
+            if (senderIsAllowed) {
+              try {
+                const imageData = await downloadImageMessage(msg, this.sock);
+                if (imageData) {
+                  const group = groups[chatJid];
+                  if (group) {
+                    const imagePath = saveImageToGroup(
+                      group.folder,
+                      imageData.buffer,
+                      imageData.mimetype,
+                      msg.key.id || `img-${Date.now()}`,
+                    );
+                    const caption = content ? ` with caption: "${content}"` : '';
+                    finalContent = `[Image${caption} — view it by reading: ${imagePath}]`;
+                    logger.info(
+                      {
+                        chatJid,
+                        sender: imageSender,
+                        size: imageData.buffer.length,
+                        mimetype: imageData.mimetype,
+                      },
+                      'Downloaded and saved image',
+                    );
+                  }
+                } else {
+                  finalContent = content || '[Image - download failed]';
+                }
+              } catch (err) {
+                logger.error({ err, chatJid }, 'Image download error');
+                finalContent = content || '[Image - download failed]';
+              }
+            } else {
+              finalContent =
+                content ||
+                '[Image from unauthorized sender — Alfred can only process images from allowed users]';
             }
           }
 
