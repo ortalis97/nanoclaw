@@ -283,7 +283,11 @@ export class WhatsAppChannel implements Channel {
 
           // Handle image messages
           if (isImage) {
-            const imageSender = msg.key.participant || msg.key.remoteJid || '';
+            // For DMs, chatJid is the LID-translated sender phone JID.
+            // For groups, use the participant field (individual sender).
+            const imageSender = isGroup
+              ? msg.key.participant || msg.key.remoteJid || ''
+              : chatJid;
             const senderIsAllowed =
               !ALLOWED_SENDERS || ALLOWED_SENDERS.has(imageSender);
 
@@ -299,7 +303,9 @@ export class WhatsAppChannel implements Channel {
                       imageData.mimetype,
                       msg.key.id || `img-${Date.now()}`,
                     );
-                    const caption = content ? ` with caption: "${content}"` : '';
+                    const caption = content
+                      ? ` with caption: "${content}"`
+                      : '';
                     finalContent = `[Image${caption} — view it by reading: ${imagePath}]`;
                     logger.info(
                       {
