@@ -66,6 +66,7 @@ const AUTH_ERROR_PATTERNS = [
   /token.*expired|expired.*token|credential.*expired/i,
   /invalid.*token/i,
   /permission_error/i,
+  /credit|balance|billing|insufficient.?fund/i,
 ];
 
 function isAuthError(error: unknown): boolean {
@@ -520,10 +521,10 @@ async function runQuery(
 }
 
 /**
- * Wraps runQuery() with a single retry on auth error.
- * If OAuth is active and API key is available, removes the OAuth token from sdkEnv
- * and retries with the API key. The removal is sticky — subsequent calls in the loop
- * will also use the API key.
+ * Wraps runQuery() with a single retry on auth/billing failure.
+ * When OAuth token is present, the API key is withheld from sdkEnv so the SDK
+ * uses OAuth exclusively. If the query fails for any reason and we have a reserved
+ * API key, we fall back to it by swapping credentials in sdkEnv.
  */
 async function runQueryWithFallback(
   prompt: string,
@@ -531,16 +532,19 @@ async function runQueryWithFallback(
   mcpServerPath: string,
   containerInput: ContainerInput,
   sdkEnv: Record<string, string | undefined>,
+  reservedApiKey: string | undefined,
   resumeAt?: string,
 ): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean }> {
   try {
     return await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
   } catch (err) {
-    const hasOAuth = !!sdkEnv['CLAUDE_CODE_OAUTH_TOKEN'];
-    const hasApiKey = !!sdkEnv['ANTHROPIC_API_KEY'];
-    if (hasOAuth && hasApiKey && isAuthError(err)) {
-      log(`OAuth auth failed: ${err instanceof Error ? err.message : String(err)}`);
+    // If OAuth was active and we have a reserved API key, fall back to it.
+    // Accept any error (not just auth errors) since OAuth failures can manifest
+    // as various error types (auth, billing, rate limit, etc.)
+    if (reservedApiKey && !sdkEnv['ANTHROPIC_API_KEY']) {
+      log(`OAuth query failed: ${err instanceof Error ? err.message : String(err)}`);
       log('Falling back to ANTHROPIC_API_KEY...');
+      sdkEnv['ANTHROPIC_API_KEY'] = reservedApiKey;
       delete sdkEnv['CLAUDE_CODE_OAUTH_TOKEN'];
       return await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
     }
@@ -573,6 +577,15 @@ async function main(): Promise<void> {
     sdkEnv[key] = value;
   }
 
+  // OAuth-first: when OAuth token is present, withhold the API key from the SDK
+  // so it uses OAuth. The API key is kept for fallback in runQueryWithFallback().
+  const reservedApiKey = sdkEnv['CLAUDE_CODE_OAUTH_TOKEN'] && sdkEnv['ANTHROPIC_API_KEY']
+    ? sdkEnv['ANTHROPIC_API_KEY']
+    : undefined;
+  if (reservedApiKey) {
+    delete sdkEnv['ANTHROPIC_API_KEY'];
+  }
+
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const mcpServerPath = path.join(__dirname, 'ipc-mcp-stdio.js');
 
@@ -599,7 +612,7 @@ async function main(): Promise<void> {
     while (true) {
       log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
 
-      const queryResult = await runQueryWithFallback(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
+      const queryResult = await runQueryWithFallback(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, reservedApiKey, resumeAt);
       if (queryResult.newSessionId) {
         sessionId = queryResult.newSessionId;
       }
