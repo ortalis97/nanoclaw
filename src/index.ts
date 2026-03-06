@@ -41,10 +41,10 @@ import { startIpcWatcher } from './ipc.js';
 import { startImageCleanup } from './image-cleanup.js';
 import { PerUserRateLimiter, startRateLimiterCleanup } from './rate-limiter.js';
 import {
+  isSenderAllowed,
   isTriggerAllowed,
   loadSenderAllowlist,
   shouldDropMessage,
-  isSenderAllowed,
 } from './sender-allowlist.js';
 import { synthesizeSpeech } from './tts.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
@@ -413,11 +413,12 @@ async function startMessageLoop(): Promise<void> {
           const isMainGroup = group.folder === MAIN_GROUP_FOLDER;
           const needsTrigger = !isMainGroup && group.requiresTrigger !== false;
 
+          const allowlistCfg = loadSenderAllowlist();
+
           // For non-main groups, only act on trigger messages.
           // Non-trigger messages accumulate in DB and get pulled as
           // context when a trigger eventually arrives.
           if (needsTrigger) {
-            const allowlistCfg = loadSenderAllowlist();
             const hasTrigger = groupMessages.some(
               (m) =>
                 TRIGGER_PATTERN.test(m.content.trim()) &&
@@ -428,9 +429,14 @@ async function startMessageLoop(): Promise<void> {
           }
 
           // Rate limit check: prevent individual users from spamming the agent
-          // Find the sender who actually triggered (not just first message sender)
+          // Find the allowed sender who actually triggered (not just first pattern match)
           const triggerMessage = needsTrigger
-            ? groupMessages.find((m) => TRIGGER_PATTERN.test(m.content.trim()))
+            ? groupMessages.find(
+                (m) =>
+                  TRIGGER_PATTERN.test(m.content.trim()) &&
+                  (m.is_from_me ||
+                    isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
+              )
             : groupMessages[0];
           const sender = triggerMessage?.sender;
           if (sender && !perUserLimiter.checkLimit(sender)) {
