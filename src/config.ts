@@ -9,7 +9,6 @@ import { readEnvFile } from './env.js';
 const envConfig = readEnvFile([
   'ASSISTANT_NAME',
   'ASSISTANT_HAS_OWN_NUMBER',
-  'ALLOWED_SENDERS',
   'ASSISTANT_HEBREW_NAME',
   'AGENT_MODEL',
 ]);
@@ -21,15 +20,6 @@ export const ASSISTANT_HEBREW_NAME =
 export const ASSISTANT_HAS_OWN_NUMBER =
   (process.env.ASSISTANT_HAS_OWN_NUMBER ||
     envConfig.ASSISTANT_HAS_OWN_NUMBER) === 'true';
-export const ALLOWED_SENDERS: Set<string> | null = (() => {
-  const raw = process.env.ALLOWED_SENDERS || envConfig.ALLOWED_SENDERS;
-  if (!raw) return null;
-  const senders = raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return senders.length > 0 ? new Set(senders) : null;
-})();
 export const POLL_INTERVAL = 2000;
 export const SCHEDULER_POLL_INTERVAL = 60000;
 
@@ -43,6 +33,12 @@ export const MOUNT_ALLOWLIST_PATH = path.join(
   '.config',
   'nanoclaw',
   'mount-allowlist.json',
+);
+export const SENDER_ALLOWLIST_PATH = path.join(
+  HOME_DIR,
+  '.config',
+  'nanoclaw',
+  'sender-allowlist.json',
 );
 export const STORE_DIR = path.resolve(PROJECT_ROOT, 'store');
 export const GROUPS_DIR = path.resolve(PROJECT_ROOT, 'groups');
