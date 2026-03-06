@@ -38,6 +38,7 @@ import {
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
+import { startImageCleanup } from './image-cleanup.js';
 import { PerUserRateLimiter, startRateLimiterCleanup } from './rate-limiter.js';
 import { synthesizeSpeech } from './tts.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
@@ -59,6 +60,7 @@ const channels: Channel[] = [];
 const queue = new GroupQueue();
 const perUserLimiter = new PerUserRateLimiter(3, 60_000);
 let rateLimiterCleanupTimer: NodeJS.Timeout | undefined;
+let imageCleanupTimer: NodeJS.Timeout | undefined;
 
 function loadState(): void {
   lastTimestamp = getRouterState('last_timestamp') || '';
@@ -493,11 +495,13 @@ async function main(): Promise<void> {
   logger.info('Database initialized');
   loadState();
   rateLimiterCleanupTimer = startRateLimiterCleanup(perUserLimiter);
+  imageCleanupTimer = startImageCleanup();
 
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');
     if (rateLimiterCleanupTimer) clearInterval(rateLimiterCleanupTimer);
+    if (imageCleanupTimer) clearInterval(imageCleanupTimer);
     await queue.shutdown(10000);
     for (const ch of channels) await ch.disconnect();
     process.exit(0);
