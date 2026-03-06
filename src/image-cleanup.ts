@@ -51,12 +51,19 @@ export function cleanupOldImages(maxAgeMs = THIRTY_DAYS_MS): number {
         try {
           fs.unlinkSync(filePath);
           logger.info(
-            { group: folder, file, agedays: Math.floor((Date.now() - stat.mtimeMs) / 86400000) },
+            {
+              group: folder,
+              file,
+              agedays: Math.floor((Date.now() - stat.mtimeMs) / 86400000),
+            },
             'Deleted old image',
           );
           deleted++;
         } catch (err) {
-          logger.warn({ group: folder, file, err }, 'Failed to delete old image');
+          logger.warn(
+            { group: folder, file, err },
+            'Failed to delete old image',
+          );
         }
       }
     }
