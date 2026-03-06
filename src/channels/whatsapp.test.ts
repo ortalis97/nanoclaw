@@ -1,21 +1,27 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
+import { isSenderAllowed } from '../sender-allowlist.js';
 
 // --- Mocks ---
-
-// Hoisted mutable config so individual tests can override ALLOWED_SENDERS
-const mockConfig = vi.hoisted(() => ({
-  allowedSenders: null as Set<string> | null,
-}));
 
 // Mock config
 vi.mock('../config.js', () => ({
   STORE_DIR: '/tmp/nanoclaw-test-store',
   ASSISTANT_NAME: 'Andy',
   ASSISTANT_HAS_OWN_NUMBER: false,
-  get ALLOWED_SENDERS() {
-    return mockConfig.allowedSenders;
-  },
+  SENDER_ALLOWLIST_PATH: '/tmp/test-sender-allowlist.json',
+}));
+
+// Mock sender-allowlist (allow all by default; individual tests can override)
+vi.mock('../sender-allowlist.js', () => ({
+  loadSenderAllowlist: vi.fn(() => ({
+    default: { allow: '*', mode: 'trigger' },
+    chats: {},
+    logDenied: false,
+  })),
+  isSenderAllowed: vi.fn(() => true),
+  shouldDropMessage: vi.fn(() => false),
+  isTriggerAllowed: vi.fn(() => true),
 }));
 
 // Mock logger
@@ -186,7 +192,8 @@ describe('WhatsAppChannel', () => {
     fakeSocket = createFakeSocket();
     vi.clearAllMocks();
     vi.mocked(getLastGroupSync).mockReturnValue(null);
-    mockConfig.allowedSenders = null; // default: no allowlist
+    // Default: allowlist allows all senders (open); individual tests can override
+    vi.mocked(isSenderAllowed).mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -742,19 +749,11 @@ describe('WhatsAppChannel', () => {
     });
 
     it('blocks image download from non-allowed sender', async () => {
-      // Only '9990000@s.whatsapp.net' is allowed; sender is '5551234@s.whatsapp.net'
-      mockConfig.allowedSenders = new Set(['9990000@s.whatsapp.net']);
+      // Sender '5551234@s.whatsapp.net' is not allowed — image download must be blocked.
+      vi.mocked(isSenderAllowed).mockReturnValue(false);
 
       const opts = createTestOpts();
       const channel = new WhatsAppChannel(opts);
-      // Group has an allowed member (9990000) so the outer group check passes,
-      // but the image sender (5551234) is not allowed — download must be blocked.
-      fakeSocket.groupMetadata.mockResolvedValue({
-        participants: [
-          { id: '9990000@s.whatsapp.net' },
-          { id: '5551234@s.whatsapp.net' },
-        ],
-      });
 
       await connectChannel(channel);
 

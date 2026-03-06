@@ -13,11 +13,15 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 
 import {
-  ALLOWED_SENDERS,
   ASSISTANT_HAS_OWN_NUMBER,
   ASSISTANT_NAME,
   STORE_DIR,
 } from '../config.js';
+import {
+  isSenderAllowed,
+  loadSenderAllowlist,
+  shouldDropMessage,
+} from '../sender-allowlist.js';
 import { getLastGroupSync, setLastGroupSync, updateChatName } from '../db.js';
 import { logger } from '../logger.js';
 import { MessagePacer, ExponentialBackoff } from '../rate-limiter.js';
@@ -54,7 +58,6 @@ export class WhatsAppChannel implements Channel {
   private flushing = false;
   private groupSyncTimerStarted = false;
 
-  private groupParticipants: Map<string, Set<string>> = new Map();
   private opts: WhatsAppChannelOpts;
   private messagePacer = new MessagePacer(1500, 3000);
   private backoff = new ExponentialBackoff(2000, 3);
@@ -203,18 +206,6 @@ export class WhatsAppChannel implements Channel {
 
         const isGroup = chatJid.endsWith('@g.us');
 
-        // --- Sender allowlist ---
-        if (ALLOWED_SENDERS) {
-          if (isGroup) {
-            if (!(await this.hasAllowedMember(chatJid))) continue;
-          } else {
-            const fromMe = msg.key.fromMe || false;
-            // Use translated chatJid (not raw remoteJid) — remoteJid may be a LID
-            // in newer WhatsApp versions, which wouldn't match the phone-JID allowlist.
-            if (!fromMe && !ALLOWED_SENDERS.has(chatJid)) continue;
-          }
-        }
-
         // Always notify about chat metadata for group discovery
         this.opts.onChatMetadata(
           chatJid,
@@ -227,6 +218,20 @@ export class WhatsAppChannel implements Channel {
         // Only deliver full message for registered groups
         let groups = this.opts.registeredGroups();
         if (!groups[chatJid] && this.opts.onAutoRegister) {
+          // Gate auto-registration: only register for allowed senders
+          const fromMe = msg.key.fromMe || false;
+          if (!fromMe) {
+            const cfg = loadSenderAllowlist();
+            const msgSender = isGroup
+              ? msg.key.participant || msg.key.remoteJid || ''
+              : chatJid;
+            if (
+              shouldDropMessage(chatJid, cfg) &&
+              !isSenderAllowed(chatJid, msgSender, cfg)
+            ) {
+              continue;
+            }
+          }
           const senderForName = msg.key.participant || msg.key.remoteJid || '';
           const chatName =
             msg.pushName ||
@@ -288,8 +293,12 @@ export class WhatsAppChannel implements Channel {
             const imageSender = isGroup
               ? msg.key.participant || msg.key.remoteJid || ''
               : chatJid;
-            const senderIsAllowed =
-              !ALLOWED_SENDERS || ALLOWED_SENDERS.has(imageSender);
+            const allowlistCfg = loadSenderAllowlist();
+            const senderIsAllowed = isSenderAllowed(
+              chatJid,
+              imageSender,
+              allowlistCfg,
+            );
 
             if (senderIsAllowed) {
               try {
@@ -452,12 +461,6 @@ export class WhatsAppChannel implements Channel {
           updateChatName(jid, metadata.subject);
           count++;
         }
-        if (metadata.participants) {
-          this.groupParticipants.set(
-            jid,
-            new Set(metadata.participants.map((p) => p.id)),
-          );
-        }
       }
 
       setLastGroupSync();
@@ -465,31 +468,6 @@ export class WhatsAppChannel implements Channel {
     } catch (err) {
       logger.error({ err }, 'Failed to sync group metadata');
     }
-  }
-
-  private async hasAllowedMember(groupJid: string): Promise<boolean> {
-    if (!ALLOWED_SENDERS) return true;
-
-    let members = this.groupParticipants.get(groupJid);
-    if (!members) {
-      try {
-        const meta = await this.sock.groupMetadata(groupJid);
-        members = new Set(meta.participants.map((p) => p.id));
-        this.groupParticipants.set(groupJid, members);
-      } catch (err) {
-        logger.warn(
-          { groupJid, err },
-          'Failed to fetch group metadata for allowlist check',
-        );
-        return false;
-      }
-    }
-
-    for (const memberId of members) {
-      const resolved = await this.translateJid(memberId);
-      if (ALLOWED_SENDERS.has(resolved)) return true;
-    }
-    return false;
   }
 
   private async translateJid(jid: string): Promise<string> {
