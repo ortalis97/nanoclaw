@@ -223,8 +223,10 @@ export class WhatsAppChannel implements Channel {
           if (!fromMe) {
             const cfg = loadSenderAllowlist();
             const msgSender = isGroup
-              ? msg.key.participant || msg.key.remoteJid || ''
-              : chatJid;
+              ? await this.translateJid(
+                  msg.key.participant || msg.key.remoteJid || '',
+                )
+              : chatJid; // chatJid is already LID-translated for DMs
             if (
               shouldDropMessage(chatJid, cfg) &&
               !isSenderAllowed(chatJid, msgSender, cfg)
@@ -254,7 +256,8 @@ export class WhatsAppChannel implements Channel {
           // but allow voice messages through for transcription
           if (!content && !isVoiceMessage(msg) && !isImage) continue;
 
-          const sender = msg.key.participant || msg.key.remoteJid || '';
+          const rawSender = msg.key.participant || msg.key.remoteJid || '';
+          const sender = await this.translateJid(rawSender);
           const senderName = msg.pushName || sender.split('@')[0];
 
           const fromMe = msg.key.fromMe || false;
@@ -288,11 +291,8 @@ export class WhatsAppChannel implements Channel {
 
           // Handle image messages
           if (isImage) {
-            // For DMs, chatJid is the LID-translated sender phone JID.
-            // For groups, use the participant field (individual sender).
-            const imageSender = isGroup
-              ? msg.key.participant || msg.key.remoteJid || ''
-              : chatJid;
+            // sender is already LID-translated for both DMs and groups
+            const imageSender = sender;
             const allowlistCfg = loadSenderAllowlist();
             const senderIsAllowed = isSenderAllowed(
               chatJid,
