@@ -72,7 +72,10 @@ export function cleanupOldFiles(maxAgeMs = THIRTY_DAYS_MS): number {
             );
             deleted++;
           } catch (err) {
-            logger.warn({ group: folder, subdir, file, err }, 'Failed to delete old file');
+            logger.warn(
+              { group: folder, subdir, file, err },
+              'Failed to delete old file',
+            );
           }
         }
       }

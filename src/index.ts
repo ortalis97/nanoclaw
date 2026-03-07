@@ -50,6 +50,7 @@ import {
 } from './file-sending.js';
 import { PerUserRateLimiter, startRateLimiterCleanup } from './rate-limiter.js';
 import {
+  isAnyMemberAllowed,
   isSenderAllowed,
   isTriggerAllowed,
   loadSenderAllowlist,
@@ -198,10 +199,19 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
     const allowlistCfg = loadSenderAllowlist();
+    const groupHasAllowedMember =
+      chatJid.endsWith('@g.us') &&
+      isAnyMemberAllowed(
+        chatJid,
+        await whatsapp.getGroupParticipants(chatJid),
+        allowlistCfg,
+      );
     const hasTrigger = missedMessages.some(
       (m) =>
         TRIGGER_PATTERN.test(m.content.trim()) &&
-        (m.is_from_me || isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
+        (m.is_from_me ||
+          groupHasAllowedMember ||
+          isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
     );
     if (!hasTrigger) return true;
   }
@@ -423,6 +433,13 @@ async function startMessageLoop(): Promise<void> {
           const needsTrigger = !isMainGroup && group.requiresTrigger !== false;
 
           const allowlistCfg = loadSenderAllowlist();
+          const groupHasAllowedMember =
+            chatJid.endsWith('@g.us') &&
+            isAnyMemberAllowed(
+              chatJid,
+              await whatsapp.getGroupParticipants(chatJid),
+              allowlistCfg,
+            );
 
           // For non-main groups, only act on trigger messages.
           // Non-trigger messages accumulate in DB and get pulled as
@@ -432,6 +449,7 @@ async function startMessageLoop(): Promise<void> {
               (m) =>
                 TRIGGER_PATTERN.test(m.content.trim()) &&
                 (m.is_from_me ||
+                  groupHasAllowedMember ||
                   isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
             );
             if (!hasTrigger) continue;
@@ -444,6 +462,7 @@ async function startMessageLoop(): Promise<void> {
                 (m) =>
                   TRIGGER_PATTERN.test(m.content.trim()) &&
                   (m.is_from_me ||
+                    groupHasAllowedMember ||
                     isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
               )
             : groupMessages[0];
@@ -539,21 +558,32 @@ async function main(): Promise<void> {
 
   // Channel callbacks (shared by all channels)
   const channelOpts = {
-    onMessage: (chatJid: string, msg: NewMessage) => {
+    onMessage: async (chatJid: string, msg: NewMessage) => {
       // Sender allowlist drop mode: discard messages from denied senders before storing
       if (!msg.is_from_me && !msg.is_bot_message && registeredGroups[chatJid]) {
         const cfg = loadSenderAllowlist();
-        if (
-          shouldDropMessage(chatJid, cfg) &&
-          !isSenderAllowed(chatJid, msg.sender, cfg)
-        ) {
-          if (cfg.logDenied) {
-            logger.debug(
-              { chatJid, sender: msg.sender },
-              'sender-allowlist: dropping message (drop mode)',
-            );
+        if (shouldDropMessage(chatJid, cfg)) {
+          if (chatJid.endsWith('@g.us')) {
+            // Group: allow if any member is on the allowlist
+            const members = await whatsapp.getGroupParticipants(chatJid);
+            if (!isAnyMemberAllowed(chatJid, members, cfg)) {
+              if (cfg.logDenied) {
+                logger.debug(
+                  { chatJid, sender: msg.sender },
+                  'sender-allowlist: dropping group message (no allowed members)',
+                );
+              }
+              return;
+            }
+          } else if (!isSenderAllowed(chatJid, msg.sender, cfg)) {
+            if (cfg.logDenied) {
+              logger.debug(
+                { chatJid, sender: msg.sender },
+                'sender-allowlist: dropping message (drop mode)',
+              );
+            }
+            return;
           }
-          return;
         }
       }
       storeMessage(msg);
@@ -668,7 +698,10 @@ async function main(): Promise<void> {
         const outboxName = `${Date.now()}-${path.basename(displayName)}`;
         fs.copyFileSync(hostPath, path.join(outboxDir, outboxName));
       } catch (err) {
-        logger.warn({ err, hostPath }, 'Failed to copy file to outbox — continuing with send');
+        logger.warn(
+          { err, hostPath },
+          'Failed to copy file to outbox — continuing with send',
+        );
       }
 
       // Retry logic: 3 attempts, 2s between retries

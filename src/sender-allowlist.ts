@@ -128,3 +128,14 @@ export function isTriggerAllowed(
   }
   return allowed;
 }
+
+export function isAnyMemberAllowed(
+  chatJid: string,
+  members: Iterable<string>,
+  cfg: SenderAllowlistConfig,
+): boolean {
+  for (const member of members) {
+    if (isSenderAllowed(chatJid, member, cfg)) return true;
+  }
+  return false;
+}
