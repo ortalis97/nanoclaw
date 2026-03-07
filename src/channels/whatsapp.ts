@@ -255,11 +255,14 @@ export class WhatsAppChannel implements Channel {
               }
             }
           }
+          if (isGroup && !this.groupNameCache.has(chatJid)) {
+            await this.getGroupParticipants(chatJid);
+          }
           const chatName = isGroup
             ? (this.groupNameCache.get(chatJid) ?? chatJid.split('@')[0])
-            : (msg.pushName ||
-                (msg.key.participant || msg.key.remoteJid || '').split('@')[0] ||
-                chatJid.split('@')[0]);
+            : msg.pushName ||
+              (msg.key.participant || msg.key.remoteJid || '').split('@')[0] ||
+              chatJid.split('@')[0];
           this.opts.onAutoRegister(chatJid, isGroup, chatName);
           groups = this.opts.registeredGroups();
         }
@@ -508,12 +511,12 @@ export class WhatsAppChannel implements Channel {
 
       let count = 0;
       for (const [jid, metadata] of Object.entries(groups)) {
+        // Cache group name and participant JIDs (translate LIDs to phone JIDs)
         if (metadata.subject) {
           updateChatName(jid, metadata.subject);
+          this.groupNameCache.set(jid, metadata.subject);
           count++;
         }
-        // Cache group name and participant JIDs (translate LIDs to phone JIDs)
-        if (metadata.subject) this.groupNameCache.set(jid, metadata.subject);
         const participants = new Set<string>();
         for (const p of metadata.participants || []) {
           const phoneJid = await this.translateJid(p.id);
