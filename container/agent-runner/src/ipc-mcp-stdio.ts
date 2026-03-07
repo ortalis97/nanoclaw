@@ -23,6 +23,18 @@ const isMain = process.env.NANOCLAW_IS_MAIN === '1';
 const VOICE_MAX_TEXT_LENGTH = parseInt(process.env.VOICE_MAX_TEXT_LENGTH || '500', 10);
 const VOICE_MAX_PER_SESSION = parseInt(process.env.VOICE_MAX_PER_SESSION || '3', 10);
 
+const ALLOWED_FILE_EXTENSIONS = new Set([
+  'jpg', 'jpeg', 'png', 'gif', 'webp',
+  'pdf', 'txt', 'md', 'csv', 'py', 'js', 'ts',
+  'yaml', 'yml', 'html', 'zip',
+  'mp4', 'mov',
+  'mp3', 'ogg', 'wav', 'm4a',
+]);
+
+const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp']);
+const IMAGE_SIZE_LIMIT = 16 * 1024 * 1024;   // 16MB
+const GENERAL_SIZE_LIMIT = 100 * 1024 * 1024; // 100MB
+
 // Session-level counter — resets when the container restarts
 let voiceMessageCount = 0;
 
@@ -318,6 +330,92 @@ server.tool(
     writeIpcFile(MESSAGES_DIR, data);
 
     return { content: [{ type: 'text' as const, text: 'Voice message queued.' }] };
+  },
+);
+
+server.tool(
+  'send_file',
+  `Send a file (image, document, video, or audio) to the chat. Use when the user asks you to send a file, screenshot, or document, or when you've created/downloaded a file they need. Do NOT send files unsolicited.
+
+Allowed extensions: jpg, jpeg, png, gif, webp, pdf, txt, md, csv, py, js, ts, yaml, yml, html, zip, mp4, mov, mp3, ogg, wav, m4a.
+Size limits: 16MB for images, 100MB for documents/video/audio.
+Only files inside /workspace/group/ can be sent.`,
+  {
+    path: z.string().describe('File path inside /workspace/group/ (e.g. /workspace/group/images/screenshot.png)'),
+    caption: z.string().optional().describe('Description shown with the file'),
+    filename: z.string().optional().describe('Override the display name (e.g. report.pdf instead of tmp123.pdf)'),
+  },
+  async (args) => {
+    // Validate path is inside /workspace/group/ with no traversal
+    const prefix = '/workspace/group/';
+    if (!args.path.startsWith(prefix)) {
+      return {
+        content: [{ type: 'text' as const, text: 'Path must be inside /workspace/group/' }],
+        isError: true,
+      };
+    }
+    const relative = args.path.slice(prefix.length);
+    if (!relative) {
+      return {
+        content: [{ type: 'text' as const, text: 'Path cannot be /workspace/group/ itself' }],
+        isError: true,
+      };
+    }
+    if (relative.split('/').some(seg => seg === '..')) {
+      return {
+        content: [{ type: 'text' as const, text: 'Path traversal not allowed' }],
+        isError: true,
+      };
+    }
+
+    // Validate extension
+    const ext = path.extname(args.path).slice(1).toLowerCase();
+    if (!ext || !ALLOWED_FILE_EXTENSIONS.has(ext)) {
+      return {
+        content: [{ type: 'text' as const, text: `File extension ".${ext}" is not allowed. Allowed: jpg, jpeg, png, gif, webp, pdf, txt, md, csv, py, js, ts, yaml, yml, html, zip, mp4, mov, mp3, ogg, wav, m4a` }],
+        isError: true,
+      };
+    }
+
+    // Verify file exists and is a regular file
+    if (!fs.existsSync(args.path)) {
+      return {
+        content: [{ type: 'text' as const, text: `File not found: ${args.path}` }],
+        isError: true,
+      };
+    }
+    const stat = fs.statSync(args.path);
+    if (!stat.isFile()) {
+      return {
+        content: [{ type: 'text' as const, text: `Path is not a regular file: ${args.path}` }],
+        isError: true,
+      };
+    }
+
+    // Check size limits
+    const isImage = IMAGE_EXTENSIONS.has(ext);
+    const sizeLimit = isImage ? IMAGE_SIZE_LIMIT : GENERAL_SIZE_LIMIT;
+    if (stat.size > sizeLimit) {
+      const limitMB = Math.round(sizeLimit / (1024 * 1024));
+      return {
+        content: [{ type: 'text' as const, text: `File too large: ${(stat.size / (1024 * 1024)).toFixed(1)}MB exceeds ${limitMB}MB limit` }],
+        isError: true,
+      };
+    }
+
+    const data = {
+      type: 'file',
+      chatJid,
+      containerPath: args.path,
+      caption: args.caption,
+      filename: args.filename,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    };
+
+    writeIpcFile(MESSAGES_DIR, data);
+
+    return { content: [{ type: 'text' as const, text: `File queued for sending: ${args.path}` }] };
   },
 );
 

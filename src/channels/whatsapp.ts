@@ -32,6 +32,7 @@ import {
   saveImageToGroup,
   transcribeAudioMessage,
 } from '../transcription.js';
+import { buildBaileysFileContent } from '../file-sending.js';
 import {
   Channel,
   OnInboundMessage,
@@ -386,6 +387,25 @@ export class WhatsAppChannel implements Channel {
         'Failed to send, message queued',
       );
     }
+  }
+
+  async sendFile(
+    jid: string,
+    buffer: Buffer,
+    mimetype: string,
+    caption?: string,
+    fileName?: string,
+  ): Promise<void> {
+    if (!this.connected) {
+      logger.warn({ jid, mimetype }, 'Cannot send file while disconnected');
+      return;
+    }
+    const content = buildBaileysFileContent(buffer, mimetype, caption, fileName);
+    await this.backoff.execute(async () => {
+      await this.messagePacer.pace(jid);
+      await this.sock.sendMessage(jid, content);
+    });
+    logger.info({ jid, mimetype, bytes: buffer.length }, 'File sent');
   }
 
   async sendVoiceMessage(jid: string, audio: Buffer): Promise<void> {

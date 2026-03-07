@@ -8,11 +8,14 @@ import { logger } from './logger.js';
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
+const CLEANUP_SUBDIRS = ['images', 'outbox'];
+
 /**
- * Delete images older than maxAgeMs from all group images/ directories.
+ * Delete files older than maxAgeMs from all group images/ and outbox/ directories.
+ * Respects .keep markers — files with a companion <filename>.keep are skipped.
  * Returns the number of files deleted.
  */
-export function cleanupOldImages(maxAgeMs = THIRTY_DAYS_MS): number {
+export function cleanupOldFiles(maxAgeMs = THIRTY_DAYS_MS): number {
   const cutoff = Date.now() - maxAgeMs;
   let deleted = 0;
 
@@ -27,66 +30,73 @@ export function cleanupOldImages(maxAgeMs = THIRTY_DAYS_MS): number {
   for (const folder of groupFolders) {
     if (!isValidGroupFolder(folder)) continue;
 
-    const imagesDir = path.join(GROUPS_DIR, folder, 'images');
+    for (const subdir of CLEANUP_SUBDIRS) {
+      const dir = path.join(GROUPS_DIR, folder, subdir);
 
-    let files: string[];
-    try {
-      files = fs.readdirSync(imagesDir);
-    } catch {
-      continue;
-    }
-
-    for (const file of files) {
-      const filePath = path.join(imagesDir, file);
-      let stat: fs.Stats;
+      let files: string[];
       try {
-        stat = fs.statSync(filePath);
+        files = fs.readdirSync(dir);
       } catch {
         continue;
       }
 
-      if (!stat.isFile()) continue;
+      for (const file of files) {
+        // Skip .keep marker files themselves
+        if (file.endsWith('.keep')) continue;
 
-      if (stat.mtimeMs < cutoff) {
+        const filePath = path.join(dir, file);
+
+        // Respect .keep markers — if <filename>.keep exists, skip this file
+        if (fs.existsSync(filePath + '.keep')) continue;
+
+        let stat: fs.Stats;
         try {
-          fs.unlinkSync(filePath);
-          logger.info(
-            {
-              group: folder,
-              file,
-              agedays: Math.floor((Date.now() - stat.mtimeMs) / 86400000),
-            },
-            'Deleted old image',
-          );
-          deleted++;
-        } catch (err) {
-          logger.warn(
-            { group: folder, file, err },
-            'Failed to delete old image',
-          );
+          stat = fs.statSync(filePath);
+        } catch {
+          continue;
+        }
+
+        if (!stat.isFile()) continue;
+
+        if (stat.mtimeMs < cutoff) {
+          try {
+            fs.unlinkSync(filePath);
+            logger.info(
+              {
+                group: folder,
+                subdir,
+                file,
+                agedays: Math.floor((Date.now() - stat.mtimeMs) / 86400000),
+              },
+              'Deleted old file',
+            );
+            deleted++;
+          } catch (err) {
+            logger.warn({ group: folder, subdir, file, err }, 'Failed to delete old file');
+          }
         }
       }
     }
   }
 
   if (deleted > 0) {
-    logger.info({ deleted }, 'Image cleanup complete');
+    logger.info({ deleted }, 'File cleanup complete');
   } else {
-    logger.debug('Image cleanup: no files to delete');
+    logger.debug('File cleanup: no files to delete');
   }
 
   return deleted;
 }
 
 /**
- * Start a weekly interval that deletes images older than 30 days.
+ * Start a weekly interval that deletes files older than 30 days from images/ and outbox/ dirs.
  * @returns Timer ID that can be cleared with clearInterval()
  */
-export function startImageCleanup(): NodeJS.Timeout {
+export function startFileCleanup(): NodeJS.Timeout {
   // Run once at startup (catches any backlog), then weekly
-  cleanupOldImages();
+  cleanupOldFiles();
 
   return setInterval(() => {
-    cleanupOldImages();
+    cleanupOldFiles();
   }, SEVEN_DAYS_MS);
 }
