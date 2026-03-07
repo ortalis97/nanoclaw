@@ -60,6 +60,7 @@ export class WhatsAppChannel implements Channel {
   private flushing = false;
   private groupSyncTimerStarted = false;
   private groupParticipantsCache = new Map<string, Set<string>>();
+  private groupNameCache = new Map<string, string>();
 
   private opts: WhatsAppChannelOpts;
   private messagePacer = new MessagePacer(1500, 3000);
@@ -195,6 +196,19 @@ export class WhatsAppChannel implements Channel {
       logger.debug({ groupJid: id }, 'Group participant cache invalidated');
     });
 
+    // Keep group name cache fresh on renames
+    this.sock.ev.on('groups.update', (updates) => {
+      for (const update of updates) {
+        if (update.id && update.subject) {
+          this.groupNameCache.set(update.id, update.subject);
+          logger.debug(
+            { groupJid: update.id, name: update.subject },
+            'Group name cache updated',
+          );
+        }
+      }
+    });
+
     this.sock.ev.on('messages.upsert', async ({ messages }) => {
       for (const msg of messages) {
         if (!msg.message) continue;
@@ -241,11 +255,11 @@ export class WhatsAppChannel implements Channel {
               }
             }
           }
-          const senderForName = msg.key.participant || msg.key.remoteJid || '';
-          const chatName =
-            msg.pushName ||
-            senderForName.split('@')[0] ||
-            chatJid.split('@')[0];
+          const chatName = isGroup
+            ? (this.groupNameCache.get(chatJid) ?? chatJid.split('@')[0])
+            : (msg.pushName ||
+                (msg.key.participant || msg.key.remoteJid || '').split('@')[0] ||
+                chatJid.split('@')[0]);
           this.opts.onAutoRegister(chatJid, isGroup, chatName);
           groups = this.opts.registeredGroups();
         }
@@ -498,7 +512,8 @@ export class WhatsAppChannel implements Channel {
           updateChatName(jid, metadata.subject);
           count++;
         }
-        // Cache participant JIDs (translate LIDs to phone JIDs)
+        // Cache group name and participant JIDs (translate LIDs to phone JIDs)
+        if (metadata.subject) this.groupNameCache.set(jid, metadata.subject);
         const participants = new Set<string>();
         for (const p of metadata.participants || []) {
           const phoneJid = await this.translateJid(p.id);
@@ -519,6 +534,7 @@ export class WhatsAppChannel implements Channel {
     if (cached) return cached;
     try {
       const metadata = await this.sock.groupMetadata(jid);
+      if (metadata.subject) this.groupNameCache.set(jid, metadata.subject);
       const participants = new Set<string>();
       for (const p of metadata.participants || []) {
         const phoneJid = await this.translateJid(p.id);
