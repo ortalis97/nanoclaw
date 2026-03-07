@@ -24,22 +24,64 @@ For general NanoClaw documentation, architecture, and philosophy see the [upstre
 | Self-chat (admin) | `main` | No |
 | Personal DM (Or) | `personal` | No |
 
-Chats auto-register on first message — no manual CLI registration needed — as long as the sender is in `ALLOWED_SENDERS`.
+Chats auto-register on first message — no manual CLI registration needed — as long as the sender (or any group member) is in the sender allowlist.
 
 ### Sender Allowlist
 
-Only Or (`OWNER_PHONE_REDACTED`) and Maya (`ALLOWED_PHONE_2_REDACTED`) can interact with Alfred. DMs from other numbers are silently dropped; groups only respond if Or or Maya are members. Configured via `ALLOWED_SENDERS` in `.env`.
+Access control is configured via `~/.config/nanoclaw/sender-allowlist.json` (outside the project root, never mounted into containers). If the file is missing, all non-self messages are denied (fail-closed).
+
+**Schema:**
+```json
+{
+  "default": { "allow": ["OWNER_PHONE_REDACTED@s.whatsapp.net", "ALLOWED_PHONE_2_REDACTED@s.whatsapp.net"], "mode": "drop" },
+  "chats": {
+    "120363XXXXXXXX@g.us": { "allow": "*", "mode": "drop" }
+  },
+  "logDenied": true
+}
+```
+
+| Field | Values | Meaning |
+|-------|--------|---------|
+| `allow` | `"*"` or array of JIDs | Who can interact. JIDs are `<phone>@s.whatsapp.net` |
+| `mode` | `"drop"` or `"trigger"` | `drop` = silently discard messages from non-allowed senders; `trigger` = accept messages but block triggering the agent |
+| `chats` | per-JID overrides | Overrides `default` for specific chats or groups |
+| `logDenied` | `true` / `false` | Log debug messages for denied senders |
+
+**Group membership awareness:** In group chats, if **any** group member is on the allowlist, messages from **all** members are accepted — including non-listed contacts. The group participant list is cached on startup and refreshed automatically when membership changes. DMs still require an exact sender match.
+
+In this deployment: Or (`OWNER_PHONE_REDACTED`) and Maya (`ALLOWED_PHONE_2_REDACTED`) are the allowed contacts. DMs from other numbers are silently dropped; groups are active as long as Or or Maya are members.
 
 ---
 
 ## Custom Features (not in upstream)
 
 ### Image Understanding
-Alfred receives WhatsApp images, saves them to `groups/<folder>/images/`, and passes the file path to the agent so it can read and analyze the image content. Only images from senders in `ALLOWED_SENDERS` are downloaded.
+Alfred receives WhatsApp images, saves them to `groups/<folder>/images/`, and passes the file path to the agent so it can read and analyze the image content. In group chats, images are accepted from any member if the group has an allowed contact; in DMs, only the allowed sender's images are downloaded.
 
 **Cleanup:** Images older than 30 days are automatically deleted weekly. The cleanup runs once at startup and then every 7 days.
 
 Relevant files: `src/transcription.ts` (`saveImageToGroup`), `src/image-cleanup.ts`
+
+---
+
+### Sending Files to WhatsApp
+
+Alfred can send files from its workspace directly to WhatsApp using the `send_file` MCP tool. The agent specifies a path inside `/workspace/group/` and an optional caption; the host reads the file and delivers it via the appropriate WhatsApp message type.
+
+**Usage (agent-side):**
+```
+send_file({ path: "/workspace/group/report.pdf", caption: "Here's the report" })
+send_file({ path: "/workspace/group/chart.png" })
+```
+
+**Allowed file types:** images (`jpg`, `jpeg`, `png`, `gif`, `webp`), documents (`pdf`, `txt`, `md`, `csv`, `py`, `js`, `ts`, `yaml`, `yml`, `html`, `zip`), video (`mp4`, `mov`), audio (`mp3`, `ogg`, `wav`, `m4a`).
+
+**Size limits:** 16 MB for images, 100 MB for all other files.
+
+Files are automatically copied to `groups/<folder>/outbox/` for cleanup tracking (same 30-day retention as images). If delivery fails after 3 attempts, Alfred notifies the chat with the workspace path so the user can retrieve it manually.
+
+Relevant files: `src/file-sending.ts`, `src/ipc.ts`, `container/agent-runner/src/ipc-mcp-stdio.ts`
 
 ---
 
@@ -129,7 +171,8 @@ See [`deploy/README.md`](deploy/README.md) for the full VM setup walkthrough (Ph
 | `src/channels/whatsapp.ts` | WhatsApp connection (Baileys) |
 | `src/container-runner.ts` | Docker agent spawn + IPC |
 | `src/task-scheduler.ts` | Scheduled tasks (cron/interval/once) |
-| `src/image-cleanup.ts` | Weekly cleanup of images older than 30 days |
+| `src/image-cleanup.ts` | Weekly cleanup of images/files older than 30 days |
+| `src/file-sending.ts` | File type validation, MIME mapping, size limits |
 | `src/transcription.ts` | Voice transcription (Whisper) + image save |
 | `src/tts.ts` | Outgoing voice message synthesis (OpenAI TTS) |
 | `src/db.ts` | SQLite — messages, groups, sessions, tasks |
