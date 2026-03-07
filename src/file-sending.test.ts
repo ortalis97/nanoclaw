@@ -40,15 +40,11 @@ describe('validateContainerPath', () => {
   });
 
   it('accepts paths with single-dot segments', () => {
-    expect(
-      validateContainerPath('/workspace/group/./file.txt'),
-    ).toBeNull();
+    expect(validateContainerPath('/workspace/group/./file.txt')).toBeNull();
   });
 
   it('accepts paths with double-slash (empty segments)', () => {
-    expect(
-      validateContainerPath('/workspace/group//file.txt'),
-    ).toBeNull();
+    expect(validateContainerPath('/workspace/group//file.txt')).toBeNull();
   });
 });
 

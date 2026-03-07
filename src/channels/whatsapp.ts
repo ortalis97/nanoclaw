@@ -18,6 +18,7 @@ import {
   STORE_DIR,
 } from '../config.js';
 import {
+  isAnyMemberAllowed,
   isSenderAllowed,
   loadSenderAllowlist,
   shouldDropMessage,
@@ -58,6 +59,7 @@ export class WhatsAppChannel implements Channel {
   private outgoingQueue: Array<{ jid: string; text: string }> = [];
   private flushing = false;
   private groupSyncTimerStarted = false;
+  private groupParticipantsCache = new Map<string, Set<string>>();
 
   private opts: WhatsAppChannelOpts;
   private messagePacer = new MessagePacer(1500, 3000);
@@ -223,16 +225,14 @@ export class WhatsAppChannel implements Channel {
           const fromMe = msg.key.fromMe || false;
           if (!fromMe) {
             const cfg = loadSenderAllowlist();
-            const msgSender = isGroup
-              ? await this.translateJid(
-                  msg.key.participant || msg.key.remoteJid || '',
-                )
-              : chatJid; // chatJid is already LID-translated for DMs
-            if (
-              shouldDropMessage(chatJid, cfg) &&
-              !isSenderAllowed(chatJid, msgSender, cfg)
-            ) {
-              continue;
+            if (shouldDropMessage(chatJid, cfg)) {
+              if (isGroup) {
+                const members = await this.getGroupParticipants(chatJid);
+                if (!isAnyMemberAllowed(chatJid, members, cfg)) continue;
+              } else {
+                // DM: chatJid is already the phone JID (LID-translated above)
+                if (!isSenderAllowed(chatJid, chatJid, cfg)) continue;
+              }
             }
           }
           const senderForName = msg.key.participant || msg.key.remoteJid || '';
@@ -400,7 +400,12 @@ export class WhatsAppChannel implements Channel {
       logger.warn({ jid, mimetype }, 'Cannot send file while disconnected');
       return;
     }
-    const content = buildBaileysFileContent(buffer, mimetype, caption, fileName);
+    const content = buildBaileysFileContent(
+      buffer,
+      mimetype,
+      caption,
+      fileName,
+    );
     await this.backoff.execute(async () => {
       await this.messagePacer.pace(jid);
       await this.sock.sendMessage(jid, content);
@@ -481,12 +486,37 @@ export class WhatsAppChannel implements Channel {
           updateChatName(jid, metadata.subject);
           count++;
         }
+        // Cache participant JIDs (translate LIDs to phone JIDs)
+        const participants = new Set<string>();
+        for (const p of metadata.participants || []) {
+          const phoneJid = await this.translateJid(p.id);
+          participants.add(phoneJid);
+        }
+        this.groupParticipantsCache.set(jid, participants);
       }
 
       setLastGroupSync();
       logger.info({ count }, 'Group metadata synced');
     } catch (err) {
       logger.error({ err }, 'Failed to sync group metadata');
+    }
+  }
+
+  async getGroupParticipants(jid: string): Promise<Set<string>> {
+    const cached = this.groupParticipantsCache.get(jid);
+    if (cached) return cached;
+    try {
+      const metadata = await this.sock.groupMetadata(jid);
+      const participants = new Set<string>();
+      for (const p of metadata.participants || []) {
+        const phoneJid = await this.translateJid(p.id);
+        participants.add(phoneJid);
+      }
+      this.groupParticipantsCache.set(jid, participants);
+      return participants;
+    } catch (err) {
+      logger.warn({ err, jid }, 'Failed to fetch group participants on-demand');
+      return new Set();
     }
   }
 
