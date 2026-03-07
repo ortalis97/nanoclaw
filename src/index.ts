@@ -624,10 +624,15 @@ async function main(): Promise<void> {
       const hostPath = path.join(GROUPS_DIR, regGroup.folder, relativePath);
 
       const ext = path.extname(hostPath).slice(1).toLowerCase();
-      if (!isAllowedExtension(ext)) {
+      if (!ext || !isAllowedExtension(ext)) {
         logger.warn({ ext, hostPath }, 'File extension not allowed');
         const ch = findChannel(channels, jid);
-        if (ch) await ch.sendMessage(jid, `Cannot send file: .${ext} files are not allowed.`);
+        if (ch) {
+          const msg = ext
+            ? `Cannot send file: .${ext} files are not allowed.`
+            : 'Cannot send file: files with no extension are not allowed.';
+          await ch.sendMessage(jid, msg);
+        }
         return;
       }
 
@@ -642,19 +647,29 @@ async function main(): Promise<void> {
       const mimetype = getMimeType(ext);
       const displayName = fileName || path.basename(hostPath);
 
-      const sizeLimit = isImageMime(mimetype) ? IMAGE_SIZE_LIMIT : GENERAL_SIZE_LIMIT;
+      const sizeLimit = isImageMime(mimetype)
+        ? IMAGE_SIZE_LIMIT
+        : GENERAL_SIZE_LIMIT;
       if (buffer.length > sizeLimit) {
         const limitMB = Math.round(sizeLimit / (1024 * 1024));
         const ch = findChannel(channels, jid);
-        if (ch) await ch.sendMessage(jid, `Cannot send file: ${displayName} exceeds ${limitMB}MB limit.`);
+        if (ch)
+          await ch.sendMessage(
+            jid,
+            `Cannot send file: ${displayName} exceeds ${limitMB}MB limit.`,
+          );
         return;
       }
 
       // Copy to outbox/ for cleanup tracking (original stays in place)
-      const outboxDir = path.join(GROUPS_DIR, regGroup.folder, 'outbox');
-      fs.mkdirSync(outboxDir, { recursive: true });
-      const outboxName = `${Date.now()}-${displayName}`;
-      fs.copyFileSync(hostPath, path.join(outboxDir, outboxName));
+      try {
+        const outboxDir = path.join(GROUPS_DIR, regGroup.folder, 'outbox');
+        fs.mkdirSync(outboxDir, { recursive: true });
+        const outboxName = `${Date.now()}-${path.basename(displayName)}`;
+        fs.copyFileSync(hostPath, path.join(outboxDir, outboxName));
+      } catch (err) {
+        logger.warn({ err, hostPath }, 'Failed to copy file to outbox — continuing with send');
+      }
 
       // Retry logic: 3 attempts, 2s between retries
       let lastError: unknown;
@@ -664,19 +679,27 @@ async function main(): Promise<void> {
           return; // success
         } catch (err) {
           lastError = err;
-          logger.warn({ attempt: attempt + 1, err, hostPath }, 'File send attempt failed');
-          if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
+          logger.warn(
+            { attempt: attempt + 1, err, hostPath },
+            'File send attempt failed',
+          );
+          if (attempt < 2) await new Promise((r) => setTimeout(r, 2000));
         }
       }
 
       // All retries failed
-      logger.error({ lastError, hostPath }, 'File send failed after 3 attempts');
+      logger.error(
+        { lastError, hostPath },
+        'File send failed after 3 attempts',
+      );
       const ch = findChannel(channels, jid);
       if (ch) {
-        const sizePretty = buffer.length < 1024 * 1024
-          ? `${(buffer.length / 1024).toFixed(0)}KB`
-          : `${(buffer.length / (1024 * 1024)).toFixed(1)}MB`;
-        await ch.sendMessage(jid,
+        const sizePretty =
+          buffer.length < 1024 * 1024
+            ? `${(buffer.length / 1024).toFixed(0)}KB`
+            : `${(buffer.length / (1024 * 1024)).toFixed(1)}MB`;
+        await ch.sendMessage(
+          jid,
           `I tried to send you ${displayName} (${sizePretty}) but delivery failed after 3 attempts. The file is saved in my workspace at ${containerPath}.`,
         );
       }

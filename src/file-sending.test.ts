@@ -11,11 +11,15 @@ import {
 
 describe('validateContainerPath', () => {
   it('accepts a valid path inside /workspace/group/', () => {
-    expect(validateContainerPath('/workspace/group/images/test.png')).toBeNull();
+    expect(
+      validateContainerPath('/workspace/group/images/test.png'),
+    ).toBeNull();
   });
 
   it('accepts a nested path inside /workspace/group/', () => {
-    expect(validateContainerPath('/workspace/group/docs/reports/q1.pdf')).toBeNull();
+    expect(
+      validateContainerPath('/workspace/group/docs/reports/q1.pdf'),
+    ).toBeNull();
   });
 
   it('rejects paths outside /workspace/group/', () => {
@@ -30,7 +34,21 @@ describe('validateContainerPath', () => {
 
   it('rejects path traversal with ..', () => {
     expect(validateContainerPath('/workspace/group/../secret')).not.toBeNull();
-    expect(validateContainerPath('/workspace/group/images/../../../etc/passwd')).not.toBeNull();
+    expect(
+      validateContainerPath('/workspace/group/images/../../../etc/passwd'),
+    ).not.toBeNull();
+  });
+
+  it('accepts paths with single-dot segments', () => {
+    expect(
+      validateContainerPath('/workspace/group/./file.txt'),
+    ).toBeNull();
+  });
+
+  it('accepts paths with double-slash (empty segments)', () => {
+    expect(
+      validateContainerPath('/workspace/group//file.txt'),
+    ).toBeNull();
   });
 });
 
@@ -124,22 +142,39 @@ describe('buildBaileysFileContent', () => {
 
   it('returns image content for image MIME types', () => {
     const content = buildBaileysFileContent(buf, 'image/png', 'a caption');
-    expect(content).toMatchObject({ image: buf, caption: 'a caption', mimetype: 'image/png' });
+    expect(content).toMatchObject({
+      image: buf,
+      caption: 'a caption',
+      mimetype: 'image/png',
+    });
     expect(content).not.toHaveProperty('document');
   });
 
   it('returns video content for video MIME types', () => {
     const content = buildBaileysFileContent(buf, 'video/mp4', 'clip');
-    expect(content).toMatchObject({ video: buf, caption: 'clip', mimetype: 'video/mp4' });
+    expect(content).toMatchObject({
+      video: buf,
+      caption: 'clip',
+      mimetype: 'video/mp4',
+    });
   });
 
   it('returns audio content for audio MIME types with ptt=false', () => {
     const content = buildBaileysFileContent(buf, 'audio/mpeg');
-    expect(content).toMatchObject({ audio: buf, mimetype: 'audio/mpeg', ptt: false });
+    expect(content).toMatchObject({
+      audio: buf,
+      mimetype: 'audio/mpeg',
+      ptt: false,
+    });
   });
 
   it('returns document content for other MIME types', () => {
-    const content = buildBaileysFileContent(buf, 'application/pdf', 'summary', 'report.pdf');
+    const content = buildBaileysFileContent(
+      buf,
+      'application/pdf',
+      'summary',
+      'report.pdf',
+    );
     expect(content).toMatchObject({
       document: buf,
       mimetype: 'application/pdf',
@@ -149,7 +184,10 @@ describe('buildBaileysFileContent', () => {
   });
 
   it('uses default fileName when not provided for documents', () => {
-    const content = buildBaileysFileContent(buf, 'application/zip') as Record<string, unknown>;
+    const content = buildBaileysFileContent(buf, 'application/zip') as Record<
+      string,
+      unknown
+    >;
     expect(content['fileName']).toBe('file');
   });
 });
