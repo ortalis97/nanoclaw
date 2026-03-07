@@ -189,6 +189,12 @@ export class WhatsAppChannel implements Channel {
 
     this.sock.ev.on('creds.update', saveCreds);
 
+    // Invalidate participant cache when group membership changes
+    this.sock.ev.on('group-participants.update', ({ id }) => {
+      this.groupParticipantsCache.delete(id);
+      logger.debug({ groupJid: id }, 'Group participant cache invalidated');
+    });
+
     this.sock.ev.on('messages.upsert', async ({ messages }) => {
       for (const msg of messages) {
         if (!msg.message) continue;
@@ -295,11 +301,13 @@ export class WhatsAppChannel implements Channel {
             // sender is already LID-translated for both DMs and groups
             const imageSender = sender;
             const allowlistCfg = loadSenderAllowlist();
-            const senderIsAllowed = isSenderAllowed(
-              chatJid,
-              imageSender,
-              allowlistCfg,
-            );
+            const senderIsAllowed = isGroup
+              ? isAnyMemberAllowed(
+                  chatJid,
+                  await this.getGroupParticipants(chatJid),
+                  allowlistCfg,
+                )
+              : isSenderAllowed(chatJid, imageSender, allowlistCfg);
 
             if (senderIsAllowed) {
               try {
@@ -341,16 +349,20 @@ export class WhatsAppChannel implements Channel {
             }
           }
 
-          this.opts.onMessage(chatJid, {
-            id: msg.key.id || '',
-            chat_jid: chatJid,
-            sender,
-            sender_name: senderName,
-            content: finalContent,
-            timestamp,
-            is_from_me: fromMe,
-            is_bot_message: isBotMessage,
-          });
+          Promise.resolve(
+            this.opts.onMessage(chatJid, {
+              id: msg.key.id || '',
+              chat_jid: chatJid,
+              sender,
+              sender_name: senderName,
+              content: finalContent,
+              timestamp,
+              is_from_me: fromMe,
+              is_bot_message: isBotMessage,
+            }),
+          ).catch((err) =>
+            logger.error({ err, chatJid }, 'onMessage callback threw'),
+          );
         }
       }
     });
