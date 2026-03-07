@@ -4,6 +4,7 @@ import path from 'path';
 import {
   AGENT_MODEL,
   ASSISTANT_NAME,
+  GROUPS_DIR,
   IDLE_TIMEOUT,
   MAIN_GROUP_FOLDER,
   POLL_INTERVAL,
@@ -38,7 +39,15 @@ import {
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
-import { startImageCleanup } from './image-cleanup.js';
+import { startFileCleanup } from './image-cleanup.js';
+import {
+  validateContainerPath,
+  isAllowedExtension,
+  getMimeType,
+  isImageMime,
+  IMAGE_SIZE_LIMIT,
+  GENERAL_SIZE_LIMIT,
+} from './file-sending.js';
 import { PerUserRateLimiter, startRateLimiterCleanup } from './rate-limiter.js';
 import {
   isSenderAllowed,
@@ -66,7 +75,7 @@ const channels: Channel[] = [];
 const queue = new GroupQueue();
 const perUserLimiter = new PerUserRateLimiter(3, 60_000);
 let rateLimiterCleanupTimer: NodeJS.Timeout | undefined;
-let imageCleanupTimer: NodeJS.Timeout | undefined;
+let fileCleanupTimer: NodeJS.Timeout | undefined;
 
 function loadState(): void {
   lastTimestamp = getRouterState('last_timestamp') || '';
@@ -514,13 +523,13 @@ async function main(): Promise<void> {
   logger.info('Database initialized');
   loadState();
   rateLimiterCleanupTimer = startRateLimiterCleanup(perUserLimiter);
-  imageCleanupTimer = startImageCleanup();
+  fileCleanupTimer = startFileCleanup();
 
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');
     if (rateLimiterCleanupTimer) clearInterval(rateLimiterCleanupTimer);
-    if (imageCleanupTimer) clearInterval(imageCleanupTimer);
+    if (fileCleanupTimer) clearInterval(fileCleanupTimer);
     await queue.shutdown(10000);
     for (const ch of channels) await ch.disconnect();
     process.exit(0);
@@ -596,6 +605,80 @@ async function main(): Promise<void> {
         // TTS failed — fall back to text
         const channel = findChannel(channels, jid);
         if (channel) await channel.sendMessage(jid, text);
+      }
+    },
+    sendFile: async (jid, containerPath, caption?, fileName?) => {
+      const regGroup = registeredGroups[jid];
+      if (!regGroup) {
+        logger.warn({ jid }, 'Cannot send file: group not registered');
+        return;
+      }
+
+      const pathError = validateContainerPath(containerPath);
+      if (pathError) {
+        logger.warn({ containerPath, error: pathError }, 'Invalid file path');
+        return;
+      }
+
+      const relativePath = containerPath.slice('/workspace/group/'.length);
+      const hostPath = path.join(GROUPS_DIR, regGroup.folder, relativePath);
+
+      const ext = path.extname(hostPath).slice(1).toLowerCase();
+      if (!isAllowedExtension(ext)) {
+        logger.warn({ ext, hostPath }, 'File extension not allowed');
+        const ch = findChannel(channels, jid);
+        if (ch) await ch.sendMessage(jid, `Cannot send file: .${ext} files are not allowed.`);
+        return;
+      }
+
+      if (!fs.existsSync(hostPath)) {
+        logger.warn({ hostPath }, 'File not found');
+        const ch = findChannel(channels, jid);
+        if (ch) await ch.sendMessage(jid, `Cannot send file: file not found.`);
+        return;
+      }
+
+      const buffer = fs.readFileSync(hostPath);
+      const mimetype = getMimeType(ext);
+      const displayName = fileName || path.basename(hostPath);
+
+      const sizeLimit = isImageMime(mimetype) ? IMAGE_SIZE_LIMIT : GENERAL_SIZE_LIMIT;
+      if (buffer.length > sizeLimit) {
+        const limitMB = Math.round(sizeLimit / (1024 * 1024));
+        const ch = findChannel(channels, jid);
+        if (ch) await ch.sendMessage(jid, `Cannot send file: ${displayName} exceeds ${limitMB}MB limit.`);
+        return;
+      }
+
+      // Copy to outbox/ for cleanup tracking (original stays in place)
+      const outboxDir = path.join(GROUPS_DIR, regGroup.folder, 'outbox');
+      fs.mkdirSync(outboxDir, { recursive: true });
+      const outboxName = `${Date.now()}-${displayName}`;
+      fs.copyFileSync(hostPath, path.join(outboxDir, outboxName));
+
+      // Retry logic: 3 attempts, 2s between retries
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await whatsapp.sendFile(jid, buffer, mimetype, caption, displayName);
+          return; // success
+        } catch (err) {
+          lastError = err;
+          logger.warn({ attempt: attempt + 1, err, hostPath }, 'File send attempt failed');
+          if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+
+      // All retries failed
+      logger.error({ lastError, hostPath }, 'File send failed after 3 attempts');
+      const ch = findChannel(channels, jid);
+      if (ch) {
+        const sizePretty = buffer.length < 1024 * 1024
+          ? `${(buffer.length / 1024).toFixed(0)}KB`
+          : `${(buffer.length / (1024 * 1024)).toFixed(1)}MB`;
+        await ch.sendMessage(jid,
+          `I tried to send you ${displayName} (${sizePretty}) but delivery failed after 3 attempts. The file is saved in my workspace at ${containerPath}.`,
+        );
       }
     },
     registeredGroups: () => registeredGroups,
