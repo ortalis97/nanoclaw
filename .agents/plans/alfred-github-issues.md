@@ -6,7 +6,7 @@ Pay special attention to how secrets are allowlisted and passed to containers �
 
 ## Feature Description
 
-Alfred (the WhatsApp bot) can document bugs, todos, and observations by creating GitHub Issues on the `ortalis97/alfred` repo using the GitHub REST API via `curl`. Issues are tagged with an `alfred` label so they're easy to filter. When the developer runs `/prime` in Claude Code on their Mac, open Alfred-reported issues are automatically pulled into context via `gh issue list`.
+Alfred (the WhatsApp bot) can document bugs, todos, and observations by creating GitHub Issues on the repo using the GitHub REST API via `curl`. Issues are tagged with an `alfred` label so they're easy to filter. When the developer runs `/prime` in Claude Code on their Mac, open Alfred-reported issues are automatically pulled into context via `gh issue list`.
 
 ## User Story
 
@@ -31,7 +31,7 @@ Alfred discovers issues (bugs, improvement ideas, todos) during operation on the
 **Feature Type**: New Capability
 **Estimated Complexity**: Low
 **Primary Systems Affected**: `src/container-runner.ts`, `groups/main/CLAUDE.md`, `MEMORY.md`, `.env.example`
-**Dependencies**: `GITHUB_TOKEN` (fine-grained PAT with Issues: Read & Write on `ortalis97/alfred`)
+**Dependencies**: `GITHUB_TOKEN` (fine-grained PAT with Issues: Read & Write on the fork repo)
 
 ---
 
@@ -44,7 +44,7 @@ Alfred discovers issues (bugs, improvement ideas, todos) during operation on the
 - `container/agent-runner/src/index.ts` (lines 191–209) — `createSanitizeBashHook`: strips `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` from Bash subprocesses. GITHUB_TOKEN is NOT in this list, so it WILL be available to `curl` in Bash without any changes here.
 - `src/env.ts` — `readEnvFile(keys)`: reads `.env` for specific keys. Used by `readSecrets()`.
 - `groups/main/CLAUDE.md` — Alfred's system prompt for the main channel. GitHub Issues instructions go here.
-- `/Users/ortalis/.claude/projects/-Users-ortalis-dev-nano-claw/memory/MEMORY.md` — Always loaded into Claude Code context. Prime instruction goes here.
+- `~/.claude/projects/.../memory/MEMORY.md` — Always loaded into Claude Code context. Prime instruction goes here.
 - `.env.example` — Template for `.env`. Document the new var here.
 
 ### New Files to Create
@@ -56,7 +56,7 @@ None. This is pure configuration + documentation.
 - [GitHub REST API — Create an Issue](https://docs.github.com/en/rest/issues/issues#create-an-issue)
   - Why: Exact JSON schema for the `curl` call Alfred will use
 - [GitHub Fine-Grained PAT](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token)
-  - Why: Minimal-scope token (Issues: R/W on `ortalis97/alfred` only) is safest
+  - Why: Minimal-scope token (Issues: R/W on the fork repo only) is safest
 
 ### Patterns to Follow
 
@@ -78,7 +78,7 @@ Add `'GITHUB_TOKEN'` to this array. Nothing else changes — the rest of the pip
 curl -s -X POST \
   -H "Authorization: Bearer $GITHUB_TOKEN" \
   -H "Content-Type: application/json" \
-  https://api.github.com/repos/ortalis97/alfred/issues \
+  https://api.github.com/repos/$GITHUB_REPO/issues \
   -d '{
     "title": "Bug: <short description>",
     "body": "**Context:** ...\n\n**Observed:** ...\n\n**Expected:** ...",
@@ -146,63 +146,11 @@ function readSecrets(): Record<string, string> {
 - **GOTCHA**: Alfred uses WhatsApp formatting elsewhere — this section is internal instructions, markdown is fine
 - **VALIDATE**: Read the file back and confirm the section is appended cleanly
 
-Content to append:
-
-```markdown
----
-
-## Reporting Bugs & Todos
-
-When you notice a bug, limitation, or improvement opportunity in your own behavior or the NanoClaw system, create a GitHub Issue so the developer sees it.
-
-**When to create an issue:**
-- You encounter an error or unexpected behavior you can't resolve
-- You notice a missing capability that would help you serve users better
-- You have a todo that requires developer action (code change, config, etc.)
-- You observe a recurring pattern that should be automated
-
-**How to create an issue:**
-
-```bash
-curl -s -X POST \
-  -H "Authorization: Bearer $GITHUB_TOKEN" \
-  -H "Content-Type: application/json" \
-  https://api.github.com/repos/ortalis97/alfred/issues \
-  -d "{
-    \"title\": \"Alfred: <short description>\",
-    \"body\": \"**Observed:** <what happened>\n\n**Context:** <relevant details>\n\n**Suggested fix:** <if you have one>\",
-    \"labels\": [\"alfred\", \"bug\"]
-  }"
-```
-
-**Labels to use:**
-- `alfred,bug` — something broken or behaving wrongly
-- `alfred,enhancement` — missing feature or improvement idea
-- `alfred,todo` — action item for the developer
-
-**Check the response:** a `201` status means success. If you get `401`, the token is missing or expired. Don't retry — just note it in your response to the user.
-
-**Don't over-report:** Only create issues for things that genuinely need developer attention. Not every edge case warrants an issue.
-```
-
-### UPDATE `/Users/ortalis/.claude/projects/-Users-ortalis-dev-nano-claw/memory/MEMORY.md`
+### UPDATE `MEMORY.md`
 
 - **IMPLEMENT**: Add an "Alfred Issues" section that tells prime to run `gh issue list`
 - **GOTCHA**: MEMORY.md has a 200-line limit before truncation — keep the new section concise (5–8 lines)
 - **VALIDATE**: Read MEMORY.md back, confirm total line count stays under 200
-
-Content to append after the existing `## Pending` section:
-
-```markdown
-## Alfred's GitHub Issues
-
-Alfred reports bugs and todos as GitHub Issues with the `alfred` label.
-At the start of any session, load them:
-
-```bash
-gh issue list --repo ortalis97/alfred --label alfred --state open --json number,title,state,createdAt
-```
-```
 
 ### UPDATE `.env.example`
 
@@ -213,26 +161,26 @@ Add after the `ANTHROPIC_API_KEY` block:
 
 ```bash
 # GitHub Personal Access Token for Alfred to create issues
-# Scope: Fine-grained PAT, Issues: Read & Write on ortalis97/alfred only
+# Scope: Fine-grained PAT, Issues: Read & Write on your fork repo only
 # Generate at: https://github.com/settings/personal-access-tokens
 GITHUB_TOKEN=
 ```
 
 ### MANUAL STEP (not code): Create GitHub Labels
 
-Run once on your Mac:
+Run once:
 ```bash
-gh label create alfred --color 5319e7 --description "Reported by Alfred" --repo ortalis97/alfred
-gh label create bug --color d73a4a --description "Something isn't working" --repo ortalis97/alfred 2>/dev/null || true
-gh label create enhancement --color a2eeef --description "New feature or request" --repo ortalis97/alfred 2>/dev/null || true
-gh label create todo --color e4e669 --description "Action needed" --repo ortalis97/alfred 2>/dev/null || true
+gh label create alfred --color 5319e7 --description "Reported by Alfred" --repo <your-fork-repo>
+gh label create bug --color d73a4a --description "Something isn't working" --repo <your-fork-repo> 2>/dev/null || true
+gh label create enhancement --color a2eeef --description "New feature or request" --repo <your-fork-repo> 2>/dev/null || true
+gh label create todo --color e4e669 --description "Action needed" --repo <your-fork-repo> 2>/dev/null || true
 ```
 
 ### MANUAL STEP (not code): Add token to VM .env
 
 SSH to VM and add the token:
 ```bash
-ssh -i ~/.ssh/your-ssh-key ubuntu@VM_IP_REDACTED
+source deploy/deploy.conf && ssh -i $DEPLOY_KEY $DEPLOY_HOST
 echo "GITHUB_TOKEN=ghp_your_token_here" >> /opt/nanoclaw/.env
 sudo systemctl restart nanoclaw
 ```
@@ -245,8 +193,8 @@ sudo systemctl restart nanoclaw
 
 1. SSH to VM, confirm `GITHUB_TOKEN` is in `/opt/nanoclaw/.env`
 2. Send Alfred a message: `@Alfred you have a test todo: verify GitHub issue creation works`
-3. Alfred should create an issue — check `github.com/ortalis97/alfred/issues`
-4. On Mac: `gh issue list --repo ortalis97/alfred --label alfred --state open` should show it
+3. Alfred should create an issue — check your fork's issue tracker
+4. On Mac: `gh issue list --repo <your-fork-repo> --label alfred --state open` should show it
 5. Run `/prime` — confirm the issue appears in context summary
 
 ### Unit Tests
@@ -281,7 +229,7 @@ import('./src/env.js').then(m => {
 ### Level 4: End-to-end
 ```bash
 # On Mac after deployment:
-gh issue list --repo ortalis97/alfred --label alfred --state open --json number,title,createdAt
+gh issue list --repo <your-fork-repo> --label alfred --state open --json number,title,createdAt
 ```
 
 ---

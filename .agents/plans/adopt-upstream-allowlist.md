@@ -207,13 +207,13 @@ Create `~/.config/nanoclaw/sender-allowlist.json` locally:
 {
   "default": {
     "allow": [
-      "OWNER_PHONE_REDACTED@s.whatsapp.net",
-      "ALLOWED_PHONE_2_REDACTED@s.whatsapp.net"
+      "<OWNER_PHONE>@s.whatsapp.net",
+      "<ALLOWED_PHONE_2>@s.whatsapp.net"
     ],
     "mode": "drop"
   },
   "chats": {
-    "ALFRED_PHONE_REDACTED@s.whatsapp.net": {
+    "<ALFRED_PHONE>@s.whatsapp.net": {
       "allow": "*",
       "mode": "trigger"
     }
@@ -223,8 +223,8 @@ Create `~/.config/nanoclaw/sender-allowlist.json` locally:
 ```
 
 Rationale:
-- **default:** Only Or and Maya are allowed; unknown senders are dropped (silenced). This matches our current `ALLOWED_SENDERS` behavior.
-- **self-chat** (`ALFRED_PHONE_REDACTED@s.whatsapp.net`): Allow all (`*`) with trigger mode. This is Alfred's own number -- all messages are from "me".
+- **default:** Only allowed contacts are permitted; unknown senders are dropped (silenced). This matches our current `ALLOWED_SENDERS` behavior.
+- **self-chat**: Allow all (`*`) with trigger mode. This is Alfred's own number -- all messages are from "me".
 - **logDenied:** true for debugging.
 
 ### Step 7: Clean up `.env` and `.env.example`
@@ -242,15 +242,17 @@ Rationale:
 ### Step 8: Deploy to VM
 
 ```bash
+source deploy/deploy.conf
+
 # 1. Create the config directory on VM (already exists for mount-allowlist.json)
-ssh -i ~/.ssh/your-ssh-key ubuntu@VM_IP_REDACTED "mkdir -p ~/.config/nanoclaw"
+ssh -i $DEPLOY_KEY $DEPLOY_HOST "mkdir -p ~/.config/nanoclaw"
 
 # 2. Deploy the JSON file
-scp -i ~/.ssh/your-ssh-key ~/.config/nanoclaw/sender-allowlist.json \
-  ubuntu@VM_IP_REDACTED:~/.config/nanoclaw/sender-allowlist.json
+scp -i $DEPLOY_KEY ~/.config/nanoclaw/sender-allowlist.json \
+  $DEPLOY_HOST:~/.config/nanoclaw/sender-allowlist.json
 
 # 3. Remove ALLOWED_SENDERS from VM .env
-ssh -i ~/.ssh/your-ssh-key ubuntu@VM_IP_REDACTED \
+ssh -i $DEPLOY_KEY $DEPLOY_HOST \
   "sed -i '/^ALLOWED_SENDERS/d' /opt/nanoclaw/.env"
 
 # 4. Deploy code changes
@@ -265,12 +267,13 @@ npm run build
 npm test  # runs vitest -- sender-allowlist.test.ts should pass
 
 # VM verification
-ssh -i ~/.ssh/your-ssh-key ubuntu@VM_IP_REDACTED \
+source deploy/deploy.conf
+ssh -i $DEPLOY_KEY $DEPLOY_HOST \
   "sudo systemctl status nanoclaw && tail -20 /opt/nanoclaw/logs/nanoclaw.log"
 ```
 
 Test cases:
-1. Send a message from Or's DM -- should be processed normally
+1. Send a message from the owner's DM -- should be processed normally
 2. (If possible) Have an unknown number message -- should be silently dropped
 3. Self-chat messages should work (allow: *)
 

@@ -12,9 +12,9 @@ For general NanoClaw documentation, architecture, and philosophy see the [upstre
 |-|--|
 | **Bot name** | Alfred |
 | **Trigger** | `@Alfred` |
-| **VM** | Oracle Cloud Always Free — `ubuntu@VM_IP_REDACTED` |
+| **VM** | Oracle Cloud Always Free (see `deploy/deploy.conf`) |
 | **App path** | `/opt/nanoclaw` |
-| **WhatsApp number** | `+ALFRED_PHONE_REDACTED` (eSIM) |
+| **WhatsApp number** | configured at pairing time |
 | **Timezone** | `Asia/Jerusalem` |
 
 ### Registered Chats
@@ -22,7 +22,7 @@ For general NanoClaw documentation, architecture, and philosophy see the [upstre
 | Chat | Folder | Trigger required |
 |------|--------|-----------------|
 | Self-chat (admin) | `main` | No |
-| Personal DM (Or) | `personal` | No |
+| Personal DM (owner) | `personal` | No |
 
 Chats auto-register on first message — no manual CLI registration needed — as long as the sender (or any group member) is in the sender allowlist.
 
@@ -33,7 +33,7 @@ Access control is configured via `~/.config/nanoclaw/sender-allowlist.json` (out
 **Schema:**
 ```json
 {
-  "default": { "allow": ["OWNER_PHONE_REDACTED@s.whatsapp.net", "ALLOWED_PHONE_2_REDACTED@s.whatsapp.net"], "mode": "drop" },
+  "default": { "allow": ["<OWNER_PHONE>@s.whatsapp.net", "<ALLOWED_PHONE_2>@s.whatsapp.net"], "mode": "drop" },
   "chats": {
     "120363XXXXXXXX@g.us": { "allow": "*", "mode": "drop" }
   },
@@ -50,7 +50,7 @@ Access control is configured via `~/.config/nanoclaw/sender-allowlist.json` (out
 
 **Group membership awareness:** In group chats, if **any** group member is on the allowlist, messages from **all** members are accepted — including non-listed contacts. The group participant list is cached on startup and refreshed automatically when membership changes. DMs still require an exact sender match.
 
-In this deployment: Or (`OWNER_PHONE_REDACTED`) and Maya (`ALLOWED_PHONE_2_REDACTED`) are the allowed contacts. DMs from other numbers are silently dropped; groups are active as long as Or or Maya are members.
+Configure your allowed contacts in `~/.config/nanoclaw/sender-allowlist.json`. DMs from other numbers are silently dropped; groups are active as long as an allowed contact is a member.
 
 ---
 
@@ -121,7 +121,7 @@ Relevant file: `src/config.ts`
 ---
 
 ### GitHub Issues Reporting
-Alfred can file bugs, todos, and observations as GitHub Issues with the `alfred` label on `ortalis97/alfred`. Requires `GITHUB_TOKEN` in `.env` and the `gh` CLI available in the container.
+Alfred can file bugs, todos, and observations as GitHub Issues with the `alfred` label. Requires `GITHUB_TOKEN` in `.env` and the `gh` CLI available in the container.
 
 ---
 
@@ -144,8 +144,8 @@ bash deploy/deploy-changes.sh --rebuild-docker
 ```
 
 ```bash
-# SSH to VM
-ssh -i ~/.ssh/your-ssh-key ubuntu@VM_IP_REDACTED
+# SSH to VM (credentials in deploy/deploy.conf)
+source deploy/deploy.conf && ssh -i $DEPLOY_KEY $DEPLOY_HOST
 
 # Service management
 sudo systemctl status nanoclaw

@@ -26,7 +26,7 @@ detail: In the auto-registration gate, `msgSender` for groups uses
   `msg.key.participant || msg.key.remoteJid || ''`. In newer WhatsApp versions
   (LID migration), `msg.key.participant` can be a LID JID (e.g., `xyz@lid`)
   instead of a phone JID. The allowlist config stores phone JIDs
-  (e.g., `OWNER_PHONE_REDACTED@s.whatsapp.net`). The comparison
+  (e.g., `<OWNER_PHONE>@s.whatsapp.net`). The comparison
   `isSenderAllowed(chatJid, 'xyz@lid', cfg)` always returns false for any
   non-'*' allow list, so a valid group with allowed members will never
   auto-register when participants are addressed via LID JIDs.

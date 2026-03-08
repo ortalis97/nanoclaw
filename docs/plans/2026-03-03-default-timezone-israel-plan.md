@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript config, `.env` file, systemd service environment.
 
-**Prerequisites:** SSH access to the VM (`ssh -i ~/.ssh/your-ssh-key ubuntu@VM_IP_REDACTED`). The bot should already be running.
+**Prerequisites:** SSH access to the VM (see `deploy/deploy.conf`). The bot should already be running.
 
 ---
 
@@ -66,7 +66,7 @@ LOG_LEVEL=info
 **Step 4:** Commit.
 
 ```bash
-cd /Users/ortalis/dev/nano_claw
+cd /path/to/nanoclaw
 git add .env.example
 git commit -m "config: default timezone to Asia/Jerusalem"
 ```
@@ -79,11 +79,7 @@ git commit -m "config: default timezone to Asia/Jerusalem"
 
 ### Task 2: Edit live `.env` on VM
 
-**Step 1:** SSH into the VM.
-
-```bash
-ssh -i ~/.ssh/your-ssh-key ubuntu@VM_IP_REDACTED
-```
+**Step 1:** SSH into the VM (see `deploy/deploy.conf` for host and key).
 
 **Step 2:** Add the `TZ` variable to the live `.env`.
 
@@ -136,14 +132,14 @@ exit
 
 ## Phase 3: Push to GitHub and Deploy (Day-to-Day Workflow)
 
-> **Exit Criteria:** The `.env.example` change is pushed to `ortalis97/alfred` and the VM has been refreshed.
+> **Exit Criteria:** The `.env.example` change is pushed to the repo and the VM has been refreshed.
 
 ### Task 3: Deploy the committed change
 
 **Step 1:** Push to GitHub and deploy via the standard script.
 
 ```bash
-cd /Users/ortalis/dev/nano_claw
+cd /path/to/nanoclaw
 bash deploy/deploy-changes.sh
 ```
 
@@ -152,7 +148,8 @@ The script handles: push to GitHub → pull on VM → npm install + build → se
 **Step 2:** Confirm deployment succeeded.
 
 ```bash
-ssh -i ~/.ssh/your-ssh-key ubuntu@VM_IP_REDACTED "sudo systemctl status nanoclaw --no-pager"
+source deploy/deploy.conf
+ssh -i $DEPLOY_KEY $DEPLOY_HOST "sudo systemctl status nanoclaw --no-pager"
 ```
 
 ---

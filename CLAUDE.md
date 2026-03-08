@@ -8,7 +8,7 @@ This is the **fork of NanoClaw** (`ortalis97/alfred`) — a 24/7 WhatsApp bot na
 
 - **Fork:** `git@github.com:ortalis97/alfred.git`
 - **Upstream:** `https://github.com/qwibitai/nanoclaw.git`
-- **VM:** `ubuntu@VM_IP_REDACTED` (SSH key: `~/.ssh/your-ssh-key`)
+- **VM:** See `deploy/deploy.conf` for host and SSH key
 
 To get upstream NanoClaw updates: `git fetch upstream && git merge upstream/main`
 
@@ -17,6 +17,8 @@ To get upstream NanoClaw updates: `git fetch upstream && git merge upstream/main
 | File | Purpose |
 |------|---------|
 | `.env.example` | Environment template — copy to `.env`, fill in API key |
+| `deploy/deploy.conf.example` | VM connection template — copy to `deploy/deploy.conf`, fill in host + key |
+| `deploy/deploy.conf` | VM host + SSH key (gitignored, never committed) |
 | `deploy/install.sh` | One-shot Phase 5 installer (run on VM after Phase 1–4) |
 | `deploy/nanoclaw.service` | systemd unit — replaces `<YOUR_USERNAME>` with `$USER` at install time |
 | `deploy/nanoclaw.logrotate` | Logrotate config — installed to `/etc/logrotate.d/nanoclaw` |
@@ -94,7 +96,12 @@ tail -f /opt/nanoclaw/logs/nanoclaw.error.log
 - Local may be ahead (e.g. experimenting with new vars) — that's fine.
 - Local must **never be behind** the VM — if a var is set on the VM it must also exist locally.
 - When adding a new env var: update both files in the same session. Update `.env.example` too.
-- To verify sync: `diff <(grep -v '^#' .env | grep -v '^$' | sort) <(ssh -i ~/.ssh/your-ssh-key ubuntu@VM_IP_REDACTED "grep -v '^#' /opt/nanoclaw/.env | grep -v '^$' | sort")`
+- To verify sync (use values from `deploy/deploy.conf`):
+  ```bash
+  source deploy/deploy.conf
+  diff <(grep -v '^#' .env | grep -v '^$' | sort) \
+       <(ssh -i $DEPLOY_KEY $DEPLOY_HOST "grep -v '^#' /opt/nanoclaw/.env | grep -v '^$' | sort")
+  ```
 
 ## Agent-Runner Source Updates (MCP Tools / Container Code)
 
@@ -132,4 +139,4 @@ bash deploy/deploy-changes.sh --rebuild-docker
 
 The script: pushes to GitHub → pulls on VM → npm install + build → restarts systemd service.
 
-**SSH to VM:** `ssh -i ~/.ssh/your-ssh-key ubuntu@VM_IP_REDACTED`
+**SSH to VM:** `source deploy/deploy.conf && ssh -i $DEPLOY_KEY $DEPLOY_HOST`

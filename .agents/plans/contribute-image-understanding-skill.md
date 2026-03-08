@@ -616,7 +616,7 @@ EOF
 | Image funcs in `transcription.ts` | Separate `image-handler.ts` (avoid conflicts) |
 | Cleanup in `image-cleanup.ts` | Same file, same logic |
 | "Alfred" in CLAUDE.md | "Andy" (upstream default name) |
-| Mentions Or and Maya by name | Generic "unauthorized sender" message |
+| Mentions allowed users by name | Generic "unauthorized sender" message |
 | `ASSISTANT_NAME` in error messages | Generic message (no name reference) |
 | Uses `normalizeMessageContent` for `isImageMessage` | Same — Baileys' normalizer for robust unwrapping |
 

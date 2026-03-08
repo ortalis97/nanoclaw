@@ -70,7 +70,7 @@ When you learn something important:
 
 When a user sends an image, you'll see a message like `[Image — view it by reading: /workspace/group/images/filename.jpg]`. Use the `Read` tool to view the image, then respond about what you see. If the message includes a caption (e.g. `[Image with caption: "What is this?" — view it by reading: ...]`), treat the caption as the user's question about the image.
 
-Images from unauthorized senders appear as `[Image from unauthorized sender — Alfred can only process images from allowed users]`. Explain that you can only view images from Or and Maya.
+Images from unauthorized senders appear as `[Image from unauthorized sender — Alfred can only process images from allowed users]`. Explain that you can only view images from allowed users.
 
 ## File Cleanup
 

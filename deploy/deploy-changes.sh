@@ -6,9 +6,17 @@
 
 set -euo pipefail
 
-VM_HOST="ubuntu@VM_IP_REDACTED"
-SSH_KEY="$HOME/.ssh/your-ssh-key"
-SSH="ssh -i $SSH_KEY $VM_HOST"
+# Load deploy config (VM host + SSH key)
+CONF="$(dirname "$0")/deploy.conf"
+if [[ ! -f "$CONF" ]]; then
+  echo "Error: deploy/deploy.conf not found."
+  echo "Copy deploy/deploy.conf.example to deploy/deploy.conf and fill in your values."
+  exit 1
+fi
+# shellcheck source=deploy/deploy.conf
+source "$CONF"
+
+SSH="ssh -i $DEPLOY_KEY $DEPLOY_HOST"
 
 echo ">>> Pushing to GitHub..."
 git push origin main
@@ -30,4 +38,4 @@ $SSH "sudo systemctl restart nanoclaw"
 echo ">>> Checking status..."
 $SSH "sudo systemctl status nanoclaw --no-pager -l"
 echo ""
-echo "Deploy complete. Tail logs: ssh -i ~/.ssh/your-ssh-key $VM_HOST 'tail -f /opt/nanoclaw/logs/nanoclaw.log'"
+echo "Deploy complete. Tail logs: ssh -i $DEPLOY_KEY $DEPLOY_HOST 'tail -f /opt/nanoclaw/logs/nanoclaw.log'"

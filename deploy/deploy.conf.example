@@ -1,0 +1,9 @@
+# Deploy configuration — copy to deploy/deploy.conf and fill in your values.
+# deploy/deploy.conf is gitignored (never committed).
+#
+# Usage:
+#   cp deploy/deploy.conf.example deploy/deploy.conf
+#   nano deploy/deploy.conf   # fill in your VM host and SSH key
+
+DEPLOY_HOST="<user>@<your-vm-ip>"
+DEPLOY_KEY="$HOME/.ssh/<your-key>"
